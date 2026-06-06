@@ -28,17 +28,17 @@
 
 ## 4. Сервис инцидентов (incident)
 
-- [ ] 4.1 Создать PostgreSQL-схему `incident`; миграции: таблицы `incidents`, `incident_alerts` (alert_id, incident_id, status: firing|resolved), `incident_labels`, `incident_comments`, `incident_history`, `incident_grouping_rules` (tenant_id, source, grouping_labels[])
-- [ ] 4.2 Реализовать AMQP-консьюмер очереди `alerts.incident`; для firing-алерта: создать инцидент или привязать к существующему по группирующим лейблам; для resolved-алерта: пометить алерт как `resolved` в `incident_alerts`, закрыть инцидент если все алерты resolved
-- [ ] 4.11 Реализовать REST API группирующих лейблов (`/api/incidents/v1/{tenant}/grouping-rules`): GET (все три источника с флагом `is_default`), PUT `/{source}` (задать лейблы), DELETE `/{source}` (сброс к умолчанию); только для admin тенанта
-- [ ] 4.3 Реализовать автомат состояний жизненного цикла инцидента: open → acknowledged → resolved; поддержка повторного открытия
-- [ ] 4.4 Реализовать CRUD лейблов: объединение карт лейблов, сохранение в `incident_labels`
-- [ ] 4.5 Реализовать CRUD комментариев: эндпоинты добавления, списка (по возрастанию) и удаления
-- [ ] 4.6 Реализовать запись истории только на добавление: фиксировать каждое изменение статуса, мутацию лейбла, событие комментария
-- [ ] 4.7 Реализовать REST API: все маршруты по префиксу `/api/incidents/v1/{tenant}/incidents`; GET список (фильтры: status, severity, label, from_time, to_time + пагинация), GET по ID, PATCH статус, POST привязка алертов, PUT лейблы, POST/GET/DELETE комментарии, GET история; автор комментария — `sub` из JWT
-- [ ] 4.8 Публиковать AMQP-события `incident.created` и `incident.updated` на exchange `incidents` при изменениях состояния; payload включает `incident_id`, `tenant_id`, `tenant_slug` (нужен escalation service для формирования URL к scheduling)
-- [ ] 4.9 Написать юнит-тесты для автомата состояний и логики объединения лейблов
-- [ ] 4.10 Написать интеграционные тесты для AMQP-консьюмера и эндпоинтов REST API
+- [x] 4.1 Создать PostgreSQL-схему `incident`; миграции: таблицы `incidents`, `incident_alerts` (alert_id, incident_id, status: firing|resolved), `incident_labels`, `incident_comments`, `incident_history`, `incident_grouping_rules` (tenant_id, source, grouping_labels[])
+- [x] 4.2 Реализовать AMQP-консьюмер очереди `alerts.incident`; для firing-алерта: создать инцидент или привязать к существующему по группирующим лейблам; для resolved-алерта: пометить алерт как `resolved` в `incident_alerts`, закрыть инцидент если все алерты resolved
+- [x] 4.3 Реализовать автомат состояний жизненного цикла инцидента: open → acknowledged → resolved; поддержка повторного открытия
+- [x] 4.4 Реализовать CRUD лейблов: объединение карт лейблов, сохранение в `incident_labels`
+- [x] 4.5 Реализовать CRUD комментариев: эндпоинты добавления, списка (по возрастанию) и удаления
+- [x] 4.6 Реализовать запись истории только на добавление: фиксировать каждое изменение статуса, мутацию лейбла, событие комментария
+- [x] 4.7 Реализовать REST API: все маршруты по префиксу `/api/incidents/v1/{tenant}/incidents`; GET список (фильтры: status, severity, label, from_time, to_time + пагинация), GET по ID, PATCH статус, POST привязка алертов, PUT лейблы, POST/GET/DELETE комментарии, GET история; автор комментария — `sub` из JWT
+- [x] 4.8 Публиковать AMQP-события `incident.created` и `incident.updated` на exchange `incidents` при изменениях состояния; payload включает `incident_id`, `tenant_id`, `tenant_slug` (нужен escalation service для формирования URL к scheduling)
+- [x] 4.9 Написать юнит-тесты для автомата состояний и логики объединения лейблов
+- [x] 4.10 Написать интеграционные тесты для AMQP-консьюмера и эндпоинтов REST API
+- [x] 4.11 Реализовать REST API группирующих лейблов (`/api/incidents/v1/{tenant}/grouping-rules`): GET (все три источника с флагом `is_default`), PUT `/{source}` (задать лейблы), DELETE `/{source}` (сброс к умолчанию); только для admin тенанта
 
 ## 5. Сервис расписаний (scheduling)
 

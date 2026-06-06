@@ -45,7 +45,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := pkgmigrate.Run(cfg.DBDSN, "file://./migrations"); err != nil {
+	if err := pkgmigrate.Run(cfg.DBDSN, "file://./migrations", "ingestion_schema_migrations"); err != nil {
 		logger.Error("migrations failed", "err", err)
 		os.Exit(1)
 	}

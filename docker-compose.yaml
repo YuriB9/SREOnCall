@@ -27,16 +27,13 @@ services:
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:4.3.1-alpine
+    image: rabbitmq:4.3.1-management-alpine
     environment:
-      RABBITMQ_USERNAME: oncall
-      RABBITMQ_PASSWORD: oncall
-      RABBITMQ_VHOST: /
+      RABBITMQ_DEFAULT_USER: oncall
+      RABBITMQ_DEFAULT_PASS: oncall
     ports:
       - "5672:5672"
       - "15672:15672"   # management UI
-    volumes:
-      - rabbitmq_data:/bitnami/rabbitmq/mnesia
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 10s
