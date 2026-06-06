@@ -45,20 +45,14 @@ services:
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
-      KEYCLOAK_DATABASE_HOST: postgres
-      KEYCLOAK_DATABASE_PORT: 5432
-      KEYCLOAK_DATABASE_NAME: keycloak
-      KEYCLOAK_DATABASE_USER: oncall
-      KEYCLOAK_DATABASE_PASSWORD: oncall
-      KEYCLOAK_HTTP_PORT: 8080
-      KEYCLOAK_EXTRA_ARGS: "--import-realm"
+      KC_HEALTH_ENABLED: "true"
+    command: start-dev --import-realm
+    volumes:
+      - ./keycloak/oncall-realm.json:/opt/keycloak/data/import/oncall-realm.json:ro
     ports:
-      - "8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "8090:8080"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q '\"status\": \"UP\"' <&3"]
       interval: 15s
       timeout: 10s
       retries: 10

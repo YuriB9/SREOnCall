@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
+	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 	pkgredis "github.com/sre-oncall/pkg/redis"
 	"github.com/sre-oncall/scheduling/internal/config"
@@ -91,8 +92,10 @@ func main() {
 	}
 
 	r := chi.NewRouter()
+	r.Use(pkgmetrics.Middleware("scheduling"))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Handle("/metrics", pkgmetrics.Handler())
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)

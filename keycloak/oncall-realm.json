@@ -1,0 +1,120 @@
+{
+  "id": "oncall",
+  "realm": "oncall",
+  "displayName": "SRE OnCall",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": false,
+
+  "groups": [
+    {
+      "name": "team-a",
+      "path": "/team-a",
+      "subGroups": [
+        {
+          "name": "admins",
+          "path": "/team-a/admins",
+          "subGroups": []
+        }
+      ]
+    },
+    {
+      "name": "team-b",
+      "path": "/team-b",
+      "subGroups": [
+        {
+          "name": "admins",
+          "path": "/team-b/admins",
+          "subGroups": []
+        }
+      ]
+    }
+  ],
+
+  "clients": [
+    {
+      "clientId": "oncall-api",
+      "name": "SRE OnCall API",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "dev-secret-oncall",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true,
+      "publicClient": false,
+      "bearerOnly": false,
+      "protocol": "openid-connect",
+      "redirectUris": [],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Wonderland",
+      "email": "alice@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ],
+      "groups": ["/team-a", "/team-a/admins"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Builder",
+      "email": "bob@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ],
+      "groups": ["/team-b", "/team-b/admins"]
+    },
+    {
+      "username": "service-account-oncall-api",
+      "enabled": true,
+      "emailVerified": false,
+      "serviceAccountClientId": "oncall-api",
+      "credentials": [],
+      "clientRoles": {
+        "realm-management": [
+          "view-users",
+          "query-groups",
+          "query-users"
+        ]
+      },
+      "groups": []
+    }
+  ]
+}

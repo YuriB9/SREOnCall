@@ -24,11 +24,11 @@
 
 ### Requirement: Приём вебхуков Prometheus Alertmanager
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingest/v1/webhook/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать получение ответом HTTP 200.
 
 #### Scenario: Корректный payload Alertmanager
 
-- **WHEN** Alertmanager отправляет POST с валидным payload
+- **WHEN** Alertmanager отправляет POST с валидным payload на `/api/ingestion/v1/alertmanager`
 - **THEN** сервис возвращает HTTP 200 и ставит каждый алерт в очередь на обработку
 
 #### Scenario: Некорректный payload
@@ -40,11 +40,11 @@
 
 ### Requirement: Приём вебхуков Grafana
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingest/v1/webhook/grafana`, принимающий payload вебхука Grafana Alerting и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/grafana`, принимающий payload вебхука Grafana Alerting и подтверждать получение ответом HTTP 200.
 
 #### Scenario: Корректный payload алерта Grafana
 
-- **WHEN** Grafana отправляет POST с валидным вебхуком алерта
+- **WHEN** Grafana отправляет POST с валидным вебхуком алерта на `/api/ingestion/v1/grafana`
 - **THEN** сервис возвращает HTTP 200 и ставит алерт в очередь на обработку
 
 #### Scenario: Статус resolved в Grafana
@@ -56,7 +56,7 @@
 
 ### Requirement: Приём вебхуков Zabbix
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingest/v1/webhook/zabbix`, принимающий payload HTTP-вебхука медиатипа Zabbix.
+Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/zabbix`, принимающий payload HTTP-вебхука медиатипа Zabbix.
 
 #### Scenario: Корректное событие проблемы Zabbix
 
@@ -85,7 +85,7 @@
 
 ### Requirement: Дедупликация алертов через Redis
 
-Сервис ingestion ДОЛЖЕН вычислять SHA-256 fingerprint по отсортированной карте канонических `labels`, полю `source` и `tenant_id` (для изоляции дедупликации между тенантами), и использовать Redis SETNX с настраиваемым TTL (по умолчанию 4 часа) для дедупликации идентичных алертов в пределах окна.
+Сервис ingestion ДОЛЖЕН вычислять SHA-256 fingerprint по отсортированной карте канонических `labels`, полю `source` и `tenant_id` (для изоляции дедупликации между тенантами), и использовать Redis SETNX с настраиваемым TTL (по умолчанию 5 минут) для дедупликации идентичных алертов в пределах окна.
 
 #### Scenario: Дублирующий алерт в пределах окна дедупликации
 
@@ -111,9 +111,9 @@
 #### Scenario: Успешная публикация
 
 - **WHEN** нормализованный неповторяющийся алерт готов к публикации
-- **THEN** сервис публикует AMQP-сообщение на exchange `alerts`
+- **THEN** сервис публикует AMQP-сообщение на exchange `alerts` и записывает временную метку публикации
 
 #### Scenario: RabbitMQ недоступен
 
 - **WHEN** брокер RabbitMQ недоступен в момент публикации
-- **THEN** сервис выполняет повторные попытки с экспоненциальной задержкой до 3 раз, затем логирует структурированную ошибку и возвращает HTTP 503
+- **THEN** сервис выполняет повторные попытки с экспоненциальной задержкой до 3 раз, затем логирует структурированную ошибку и возвращает HTTP 500 вызывающей стороне

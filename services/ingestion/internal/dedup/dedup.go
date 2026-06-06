@@ -5,8 +5,25 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sre-oncall/pkg/domain"
 )
+
+var (
+	dedupHits = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ingestion_dedup_hits_total",
+		Help: "Alerts suppressed as duplicates",
+	}, []string{"tenant_id"})
+
+	dedupMisses = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ingestion_dedup_misses_total",
+		Help: "Alerts that passed deduplication (new or resolved)",
+	}, []string{"tenant_id"})
+)
+
+func init() {
+	prometheus.MustRegister(dedupHits, dedupMisses)
+}
 
 // Cache is the minimal Redis interface required for deduplication.
 type Cache interface {
@@ -32,7 +49,13 @@ func (d *Deduplicator) IsDuplicate(ctx context.Context, alert domain.Alert) (boo
 	if err != nil {
 		return false, fmt.Errorf("dedup: setnx %s: %w", alert.Fingerprint, err)
 	}
-	return !set, nil // SetNX returning false → key existed → duplicate
+	dup := !set
+	if dup {
+		dedupHits.WithLabelValues(alert.TenantID).Inc()
+	} else {
+		dedupMisses.WithLabelValues(alert.TenantID).Inc()
+	}
+	return dup, nil
 }
 
 // Clear removes the dedup key so that a future firing of the same alert passes through.

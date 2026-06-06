@@ -79,7 +79,7 @@ func Middleware(jwksURL, adminKey string) (func(http.Handler) http.Handler, erro
 				return
 			}
 
-			var mc mapClaims
+			mc := jwt.MapClaims{}
 			token, err := jwt.ParseWithClaims(raw, &mc, kf.Keyfunc)
 			if err != nil || !token.Valid {
 				http.Error(w, "invalid token", http.StatusUnauthorized)
@@ -87,11 +87,11 @@ func Middleware(jwksURL, adminKey string) (func(http.Handler) http.Handler, erro
 			}
 
 			claims := Claims{
-				Sub:               mc.strField("sub"),
-				PreferredUsername: mc.strField("preferred_username"),
-				Name:              mc.strField("name"),
-				Email:             mc.strField("email"),
-				Groups:            mc.strSlice("groups"),
+				Sub:               mapStr(mc, "sub"),
+				PreferredUsername: mapStr(mc, "preferred_username"),
+				Name:              mapStr(mc, "name"),
+				Email:             mapStr(mc, "email"),
+				Groups:            mapStrSlice(mc, "groups"),
 			}
 			ctx := context.WithValue(r.Context(), claimsKey, claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -99,18 +99,13 @@ func Middleware(jwksURL, adminKey string) (func(http.Handler) http.Handler, erro
 	}, nil
 }
 
-// mapClaims is a thin wrapper to safely extract typed fields from jwt.MapClaims.
-type mapClaims struct {
-	jwt.MapClaims
-}
-
-func (m mapClaims) strField(key string) string {
-	v, _ := m.MapClaims[key].(string)
+func mapStr(m jwt.MapClaims, key string) string {
+	v, _ := m[key].(string)
 	return v
 }
 
-func (m mapClaims) strSlice(key string) []string {
-	raw, ok := m.MapClaims[key]
+func mapStrSlice(m jwt.MapClaims, key string) []string {
+	raw, ok := m[key]
 	if !ok {
 		return nil
 	}

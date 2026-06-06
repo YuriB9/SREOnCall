@@ -13,6 +13,7 @@ import (
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
 	pkglogger "github.com/sre-oncall/pkg/logger"
+	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 	pkgredis "github.com/sre-oncall/pkg/redis"
 
@@ -108,8 +109,10 @@ func main() {
 	// ── HTTP router ───────────────────────────────────────────────────────────
 	h := handler.New(st, logger)
 	r := chi.NewRouter()
+	r.Use(pkgmetrics.Middleware("notification"))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	r.Handle("/metrics", pkgmetrics.Handler())
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)

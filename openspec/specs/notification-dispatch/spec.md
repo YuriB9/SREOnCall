@@ -8,7 +8,9 @@
 
 ### Requirement: Потребление событий эскалации
 
-Сервис notification ДОЛЖЕН потреблять сообщения `escalation.triggered` и `escalation.exhausted` из очереди `escalations.notification`. Payload события содержит `oncall_user_id` и `oncall_username`, разрешённые escalation service в момент публикации — notification не делает синхронных вызовов в scheduling за on-call данными.
+Сервис notification ДОЛЖЕН потреблять сообщения `escalation.triggered` и `escalation.exhausted` из очереди `escalations.notification` в RabbitMQ. Payload события содержит `oncall_user_id` и `oncall_username`, разрешённые escalation service в момент публикации — notification не делает синхронных вызовов в scheduling за on-call данными.
+
+Первичное оповещение при создании инцидента покрывается событием `escalation.triggered` для tier 1 (публикуется escalation service сразу после авто-назначения политики).
 
 #### Scenario: Уведомление при срабатывании эскалации
 
@@ -70,7 +72,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 #### Scenario: Лимит превышен
 
 - **WHEN** уведомление превысило бы per-contact rate-limit
-- **THEN** уведомление отбрасывается; в `notification_log` записывается запись со статусом `rate_limited`; выводится предупреждение с `user_id`, `tenant_id` и каналом
+- **THEN** уведомление отбрасывается; в `notification_log` записывается запись со статусом `rate_limited`; в структурированный лог выводится предупреждение с `user_id`, `tenant_id` и каналом
 
 ---
 
@@ -108,7 +110,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Использование per-tenant конфигурации Mattermost
 
-Сервис notification ДОЛЖЕН брать `mattermost_webhook_url` и `mattermost_channel` из `tenant_notification_config` тенанта, к которому относится инцидент.
+Сервис notification ДОЛЖЕН брать `mattermost_webhook_url` и `mattermost_channel` из `tenant_notification_config` тенанта, к которому относится инцидент, а не из глобальной конфигурации.
 
 #### Scenario: Отправка в Mattermost с per-tenant webhook
 
