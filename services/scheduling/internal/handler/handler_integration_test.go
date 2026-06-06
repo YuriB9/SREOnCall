@@ -25,18 +25,22 @@ import (
 // ── In-memory store stub ──────────────────────────────────────────────────────
 
 type memStore struct {
-	schedules map[string]*domain.Schedule
-	overrides map[string][]*domain.Override
-	users     map[string]string
-	notifCfg  map[string]*store.NotificationConfig
+	schedules     map[string]*domain.Schedule
+	overrides     map[string][]*domain.Override
+	users         map[string]string
+	notifCfg      map[string]*store.NotificationConfig
+	tenants       map[string]*domain.Tenant
+	webhookTokens map[string][]*domain.WebhookToken
 }
 
 func newMemStore() *memStore {
 	return &memStore{
-		schedules: make(map[string]*domain.Schedule),
-		overrides: make(map[string][]*domain.Override),
-		users:     make(map[string]string),
-		notifCfg:  make(map[string]*store.NotificationConfig),
+		schedules:     make(map[string]*domain.Schedule),
+		overrides:     make(map[string][]*domain.Override),
+		users:         make(map[string]string),
+		notifCfg:      make(map[string]*store.NotificationConfig),
+		tenants:       make(map[string]*domain.Tenant),
+		webhookTokens: make(map[string][]*domain.WebhookToken),
 	}
 }
 
@@ -138,6 +142,70 @@ func (m *memStore) UpsertNotificationConfig(_ context.Context, c *store.Notifica
 	return nil
 }
 
+func (m *memStore) CreateTenant(_ context.Context, t *domain.Tenant) error {
+	for _, existing := range m.tenants {
+		if existing.Slug == t.Slug {
+			return store.ErrConflict
+		}
+	}
+	t.ID = "t-" + t.Slug
+	t.CreatedAt = time.Now()
+	m.tenants[t.Slug] = t
+	return nil
+}
+
+func (m *memStore) GetTenantBySlug(_ context.Context, slug string) (*domain.Tenant, error) {
+	if t, ok := m.tenants[slug]; ok {
+		return t, nil
+	}
+	return nil, store.ErrNotFound
+}
+
+func (m *memStore) ListTenants(_ context.Context) ([]*domain.Tenant, error) {
+	out := make([]*domain.Tenant, 0, len(m.tenants))
+	for _, t := range m.tenants {
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+func (m *memStore) UpdateTenant(_ context.Context, slug, name string) (*domain.Tenant, error) {
+	t, ok := m.tenants[slug]
+	if !ok {
+		return nil, store.ErrNotFound
+	}
+	t.Name = name
+	return t, nil
+}
+
+func (m *memStore) DeleteTenant(_ context.Context, slug string) error {
+	if _, ok := m.tenants[slug]; !ok {
+		return store.ErrNotFound
+	}
+	delete(m.tenants, slug)
+	return nil
+}
+
+func (m *memStore) CreateWebhookToken(_ context.Context, tenantID, source, _ string) (*domain.WebhookToken, error) {
+	tok := &domain.WebhookToken{ID: "tok-" + time.Now().Format("150405.000000"), TenantID: tenantID, Source: source, CreatedAt: time.Now()}
+	m.webhookTokens[tenantID] = append(m.webhookTokens[tenantID], tok)
+	return tok, nil
+}
+
+func (m *memStore) ListWebhookTokens(_ context.Context, tenantID string) ([]*domain.WebhookToken, error) {
+	return m.webhookTokens[tenantID], nil
+}
+
+func (m *memStore) DeleteWebhookToken(_ context.Context, tenantID, id string) (string, error) {
+	for i, t := range m.webhookTokens[tenantID] {
+		if t.ID == id {
+			m.webhookTokens[tenantID] = append(m.webhookTokens[tenantID][:i], m.webhookTokens[tenantID][i+1:]...)
+			return "hash-" + id, nil
+		}
+	}
+	return "", store.ErrNotFound
+}
+
 // ── Router helper ─────────────────────────────────────────────────────────────
 
 func newTestRouter(h *handler.Handler) http.Handler {
@@ -162,7 +230,7 @@ func newTestRouter(h *handler.Handler) http.Handler {
 func newSrv(t *testing.T) (*httptest.Server, *memStore) {
 	t.Helper()
 	st := newMemStore()
-	h := handler.New(st, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	return httptest.NewServer(newTestRouter(h)), st
 }
 
@@ -328,5 +396,184 @@ func TestHandler_NotificationConfig(t *testing.T) {
 	_ = json.NewDecoder(resp2.Body).Decode(&cfg)
 	if cfg.MattermostChannel != "oncall" {
 		t.Errorf("expected mattermost_channel=oncall, got %q", cfg.MattermostChannel)
+	}
+}
+
+// ── Tenant isolation tests ────────────────────────────────────────────────────
+
+func newTenantRouter(h *handler.Handler) http.Handler {
+	r := chi.NewRouter()
+	r.Route("/api/schedules/v1/tenants", func(r chi.Router) {
+		r.Get("/", h.ListTenants)
+		r.Post("/", h.CreateTenant)
+		r.Get("/{slug}", h.GetTenant)
+		r.Patch("/{slug}", h.PatchTenant)
+		r.Delete("/{slug}", h.DeleteTenant)
+		r.Get("/{slug}/webhook-tokens", h.ListWebhookTokens)
+		r.Post("/{slug}/webhook-tokens", h.CreateWebhookToken)
+		r.Delete("/{slug}/webhook-tokens/{tokenId}", h.DeleteWebhookToken)
+		r.Get("/{slug}/notification-config", h.GetTenantNotificationConfig)
+		r.Put("/{slug}/notification-config", h.PutTenantNotificationConfig)
+	})
+	r.Route("/api/schedules/v1/{tenant}", func(r chi.Router) {
+		r.Get("/schedules", h.ListSchedules)
+		r.Post("/schedules", h.CreateSchedule)
+	})
+	return r
+}
+
+func newTenantSrv(t *testing.T) (*httptest.Server, *memStore) {
+	t.Helper()
+	st := newMemStore()
+	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	return httptest.NewServer(newTenantRouter(h)), st
+}
+
+func TestTenantCRUD(t *testing.T) {
+	srv, st := newTenantSrv(t)
+	defer srv.Close()
+
+	// Create tenant-a
+	body := bytes.NewBufferString(`{"slug":"team-a","name":"Team A"}`)
+	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create tenant: expected 201, got %d", resp.StatusCode)
+	}
+
+	// Get it back
+	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-a")
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("get tenant: expected 200, got %d", resp2.StatusCode)
+	}
+	var got domain.Tenant
+	_ = json.NewDecoder(resp2.Body).Decode(&got)
+	if got.Slug != "team-a" || got.Name != "Team A" {
+		t.Errorf("unexpected tenant: %+v", got)
+	}
+
+	// Patch name
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/schedules/v1/tenants/team-a",
+		bytes.NewBufferString(`{"name":"Team Alpha"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp3, _ := http.DefaultClient.Do(req)
+	defer resp3.Body.Close()
+	if resp3.StatusCode != http.StatusOK {
+		t.Errorf("patch tenant: expected 200, got %d", resp3.StatusCode)
+	}
+
+	// Delete
+	req2, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/schedules/v1/tenants/team-a", nil)
+	resp4, _ := http.DefaultClient.Do(req2)
+	defer resp4.Body.Close()
+	if resp4.StatusCode != http.StatusNoContent {
+		t.Errorf("delete tenant: expected 204, got %d", resp4.StatusCode)
+	}
+	if _, ok := st.tenants["team-a"]; ok {
+		t.Error("tenant should have been deleted")
+	}
+}
+
+func TestTenantSlugUniqueness(t *testing.T) {
+	srv, _ := newTenantSrv(t)
+	defer srv.Close()
+
+	body := bytes.NewBufferString(`{"slug":"dup","name":"First"}`)
+	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("first create: expected 201, got %d", resp.StatusCode)
+	}
+
+	body2 := bytes.NewBufferString(`{"slug":"dup","name":"Second"}`)
+	resp2, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body2)
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusConflict {
+		t.Errorf("duplicate slug: expected 409, got %d", resp2.StatusCode)
+	}
+}
+
+func TestTenantIsolation_Schedules(t *testing.T) {
+	// Schedules created for tenant-a must not appear for tenant-b.
+	srv, st := newTenantSrv(t)
+	defer srv.Close()
+
+	st.schedules["sched-x"] = &domain.Schedule{
+		ID:       "sched-x",
+		TenantID: "team-a",
+		Name:     "team-a-schedule",
+	}
+	st.schedules["sched-y"] = &domain.Schedule{
+		ID:       "sched-y",
+		TenantID: "team-b",
+		Name:     "team-b-schedule",
+	}
+
+	// team-b sees only its own schedule
+	resp, _ := http.Get(srv.URL + "/api/schedules/v1/team-b/schedules")
+	defer resp.Body.Close()
+	var schedules []domain.Schedule
+	_ = json.NewDecoder(resp.Body).Decode(&schedules)
+	for _, s := range schedules {
+		if s.TenantID != "team-b" {
+			t.Errorf("isolation breach: team-b got schedule with tenant_id=%q", s.TenantID)
+		}
+	}
+	if len(schedules) != 1 {
+		t.Errorf("expected 1 schedule for team-b, got %d", len(schedules))
+	}
+}
+
+func TestWebhookToken_CreateAndList(t *testing.T) {
+	srv, st := newTenantSrv(t)
+	defer srv.Close()
+
+	// Seed tenant
+	st.tenants["team-c"] = &domain.Tenant{ID: "t-c", Slug: "team-c", Name: "C"}
+
+	body := bytes.NewBufferString(`{"source":"alertmanager"}`)
+	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create token: expected 201, got %d", resp.StatusCode)
+	}
+	var created map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	if created["token"] == "" {
+		t.Error("expected plaintext token in response")
+	}
+	if created["id"] == nil {
+		t.Error("expected token id")
+	}
+
+	// List tokens — should show 1 (without plaintext token)
+	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-c/webhook-tokens")
+	defer resp2.Body.Close()
+	var tokens []domain.WebhookToken
+	_ = json.NewDecoder(resp2.Body).Decode(&tokens)
+	if len(tokens) != 1 {
+		t.Errorf("expected 1 token, got %d", len(tokens))
+	}
+}
+
+func TestWebhookToken_IsolatedByTenant(t *testing.T) {
+	srv, st := newTenantSrv(t)
+	defer srv.Close()
+
+	st.tenants["team-d"] = &domain.Tenant{ID: "t-d", Slug: "team-d", Name: "D"}
+	st.tenants["team-e"] = &domain.Tenant{ID: "t-e", Slug: "team-e", Name: "E"}
+
+	// Create token for team-d
+	body := bytes.NewBufferString(`{"source":"grafana"}`)
+	http.Post(srv.URL+"/api/schedules/v1/tenants/team-d/webhook-tokens", "application/json", body) //nolint
+
+	// team-e sees no tokens
+	resp, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-e/webhook-tokens")
+	defer resp.Body.Close()
+	var tokens []domain.WebhookToken
+	_ = json.NewDecoder(resp.Body).Decode(&tokens)
+	if len(tokens) != 0 {
+		t.Errorf("isolation breach: team-e sees %d tokens belonging to team-d", len(tokens))
 	}
 }

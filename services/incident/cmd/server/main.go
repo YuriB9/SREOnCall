@@ -94,6 +94,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
 		r.Route("/api/incidents/v1/{tenant_id}", func(r chi.Router) {
+			r.Use(pkgauth.RequireTenantMember)
 			r.Get("/incidents", h.ListIncidents)
 			r.Get("/incidents/{incidentId}", h.GetIncident)
 			r.Patch("/incidents/{incidentId}", h.PatchStatus)

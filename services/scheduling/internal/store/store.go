@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -195,6 +196,127 @@ func (s *Store) DeleteOverride(ctx context.Context, tenantID, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ── Tenants ───────────────────────────────────────────────────────────────────
+
+func (s *Store) CreateTenant(ctx context.Context, t *domain.Tenant) error {
+	err := s.db.QueryRow(ctx,
+		`INSERT INTO scheduling.tenants (slug, name) VALUES ($1,$2)
+		 RETURNING id, created_at`,
+		t.Slug, t.Name,
+	).Scan(&t.ID, &t.CreatedAt)
+	if err != nil && isUniqueViolation(err) {
+		return ErrConflict
+	}
+	return err
+}
+
+func (s *Store) GetTenantBySlug(ctx context.Context, slug string) (*domain.Tenant, error) {
+	t := &domain.Tenant{}
+	err := s.db.QueryRow(ctx,
+		`SELECT id, slug, name, created_at FROM scheduling.tenants WHERE slug=$1`, slug,
+	).Scan(&t.ID, &t.Slug, &t.Name, &t.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
+func (s *Store) ListTenants(ctx context.Context) ([]*domain.Tenant, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT id, slug, name, created_at FROM scheduling.tenants ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.Tenant
+	for rows.Next() {
+		t := &domain.Tenant{}
+		if err := rows.Scan(&t.ID, &t.Slug, &t.Name, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) UpdateTenant(ctx context.Context, slug, name string) (*domain.Tenant, error) {
+	t := &domain.Tenant{}
+	err := s.db.QueryRow(ctx,
+		`UPDATE scheduling.tenants SET name=$1 WHERE slug=$2
+		 RETURNING id, slug, name, created_at`, name, slug,
+	).Scan(&t.ID, &t.Slug, &t.Name, &t.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
+func (s *Store) DeleteTenant(ctx context.Context, slug string) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM scheduling.tenants WHERE slug=$1`, slug)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ── Webhook tokens ────────────────────────────────────────────────────────────
+
+func (s *Store) CreateWebhookToken(ctx context.Context, tenantID, source, tokenHash string) (*domain.WebhookToken, error) {
+	t := &domain.WebhookToken{TenantID: tenantID, Source: source}
+	err := s.db.QueryRow(ctx,
+		`INSERT INTO scheduling.tenant_webhook_tokens (tenant_id, token_hash, source)
+		 VALUES ($1,$2,$3) RETURNING id, created_at`,
+		tenantID, tokenHash, source,
+	).Scan(&t.ID, &t.CreatedAt)
+	return t, err
+}
+
+func (s *Store) ListWebhookTokens(ctx context.Context, tenantID string) ([]*domain.WebhookToken, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT id, tenant_id, source, created_at
+		 FROM scheduling.tenant_webhook_tokens WHERE tenant_id=$1 ORDER BY created_at ASC`,
+		tenantID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []*domain.WebhookToken
+	for rows.Next() {
+		t := &domain.WebhookToken{}
+		if err := rows.Scan(&t.ID, &t.TenantID, &t.Source, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, t)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) DeleteWebhookToken(ctx context.Context, tenantID, id string) (string, error) {
+	var tokenHash string
+	err := s.db.QueryRow(ctx,
+		`DELETE FROM scheduling.tenant_webhook_tokens WHERE id=$1 AND tenant_id=$2
+		 RETURNING token_hash`,
+		id, tenantID,
+	).Scan(&tokenHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return tokenHash, err
+}
+
+// isUniqueViolation checks if a PostgreSQL error is a unique constraint violation.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
 }
 
 // ── User upsert ───────────────────────────────────────────────────────────────

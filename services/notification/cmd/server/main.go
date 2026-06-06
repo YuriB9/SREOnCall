@@ -114,6 +114,7 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
 		r.Route("/api/notifications/v1/{tenant}", func(r chi.Router) {
+			r.Use(pkgauth.RequireTenantMember)
 			r.Put("/contacts/{userId}", h.PutContact)
 			r.Get("/contacts/{userId}", h.GetContact)
 		})

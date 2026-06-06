@@ -80,14 +80,14 @@
 
 ## 8. Управление тенантами
 
-- [ ] 8.1 Реализовать CRUD-эндпоинты тенантов (`/api/schedules/v1/tenants`): создание, получение, обновление имени, удаление; валидация уникальности slug
-- [ ] 8.2 Реализовать GET `/api/schedules/v1/tenants/{slug}/members`: вызвать Keycloak Admin API (client credentials) для группы `{slug}` и подгруппы `{slug}/admins`; вернуть объединённый список `(user_id, preferred_username, role)`; мутации участников — только через Keycloak UI, платформа не предоставляет POST/DELETE
-- [ ] 8.3 Реализовать управление вебхук-токенами (`/api/schedules/v1/tenants/{slug}/webhook-tokens`): генерация (показать один раз), сохранить SHA-256 хэш в БД и `HSET oncall:tokens:{hash} tenant_id` в Redis; отзыв — DELETE из БД + `HDEL` из Redis; поддержка нескольких токенов на источник
-- [ ] 8.4 Реализовать CRUD конфигурации уведомлений тенанта (`/api/schedules/v1/tenants/{slug}/notification-config`): mattermost_webhook_url, mattermost_channel, smtp_from
-- [ ] 8.5 Реализовать stateless `pkg/auth` middleware: валидировать Bearer JWT через JWKS (env `KEYCLOAK_JWKS_URL`), извлекать `sub`, `preferred_username`, `name`, `email`, `groups` из claims и класть в Go context; никакого IO из middleware; возвращать HTTP 401 при отсутствии/невалидном токене; подключить во все 5 сервисов. Tenant-проверку (наличие slug в `groups`, роль `admins`) реализовать как отдельный handler-level middleware поверх `pkg/auth` в каждом сервисе. `X-Admin-Key` обходит все проверки. Upsert в таблицу `users` выполнять только в scheduling service (не в middleware)
-- [ ] 8.6 Добавить `tenant_id NOT NULL` во все доменные миграции (incidents, schedules, escalation_policies, notification_log); добавить индексы по `tenant_id` на все таблицы
-- [ ] 8.7 Реализовать per-tenant конфигурацию уведомлений в сервисе notification: брать mattermost_webhook_url из tenant_notification_config через HTTP-запрос к scheduling
-- [ ] 8.8 Написать интеграционные тесты: изоляция — пользователь тенанта A не видит данные тенанта B
+- [x] 8.1 Реализовать CRUD-эндпоинты тенантов (`/api/schedules/v1/tenants`): создание, получение, обновление имени, удаление; валидация уникальности slug
+- [x] 8.2 Реализовать GET `/api/schedules/v1/tenants/{slug}/members`: вызвать Keycloak Admin API (client credentials) для группы `{slug}` и подгруппы `{slug}/admins`; вернуть объединённый список `(user_id, preferred_username, role)`; мутации участников — только через Keycloak UI, платформа не предоставляет POST/DELETE
+- [x] 8.3 Реализовать управление вебхук-токенами (`/api/schedules/v1/tenants/{slug}/webhook-tokens`): генерация (показать один раз), сохранить SHA-256 хэш в БД и `HSET oncall:tokens:{hash} tenant_id` в Redis; отзыв — DELETE из БД + `HDEL` из Redis; поддержка нескольких токенов на источник
+- [x] 8.4 Реализовать CRUD конфигурации уведомлений тенанта (`/api/schedules/v1/tenants/{slug}/notification-config`): mattermost_webhook_url, mattermost_channel, smtp_from
+- [x] 8.5 Реализовать stateless `pkg/auth` middleware: валидировать Bearer JWT через JWKS (env `KEYCLOAK_JWKS_URL`), извлекать `sub`, `preferred_username`, `name`, `email`, `groups` из claims и класть в Go context; никакого IO из middleware; возвращать HTTP 401 при отсутствии/невалидном токене; подключить во все 5 сервисов. Tenant-проверку (наличие slug в `groups`, роль `admins`) реализовать как отдельный handler-level middleware поверх `pkg/auth` в каждом сервисе. `X-Admin-Key` обходит все проверки. Upsert в таблицу `users` выполнять только в scheduling service (не в middleware)
+- [x] 8.6 Добавить `tenant_id NOT NULL` во все доменные миграции (incidents, schedules, escalation_policies, notification_log); добавить индексы по `tenant_id` на все таблицы
+- [x] 8.7 Реализовать per-tenant конфигурацию уведомлений в сервисе notification: брать mattermost_webhook_url из tenant_notification_config через HTTP-запрос к scheduling
+- [x] 8.8 Написать интеграционные тесты: изоляция — пользователь тенанта A не видит данные тенанта B
 
 ## 9. Сквозное тестирование и операционная готовность
 

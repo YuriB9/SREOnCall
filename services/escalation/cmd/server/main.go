@@ -110,6 +110,8 @@ func main() {
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
 		r.Route("/api/escalations/v1/{tenant}", func(r chi.Router) {
+			r.Use(pkgauth.RequireTenantMember)
+
 			// Policies
 			r.Get("/policies", h.ListPolicies)
 			r.Post("/policies", h.CreatePolicy)

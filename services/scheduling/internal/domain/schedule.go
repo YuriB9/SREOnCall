@@ -2,6 +2,26 @@ package domain
 
 import "time"
 
+type Tenant struct {
+	ID        string    `json:"id"`
+	Slug      string    `json:"slug"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type WebhookToken struct {
+	ID        string    `json:"id"`
+	TenantID  string    `json:"tenant_id"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type Member struct {
+	UserID            string `json:"user_id"`
+	PreferredUsername string `json:"preferred_username"`
+	Role              string `json:"role"`
+}
+
 type Schedule struct {
 	ID            string    `json:"id"`
 	TenantID      string    `json:"tenant_id"`

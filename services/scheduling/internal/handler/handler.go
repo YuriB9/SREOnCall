@@ -2,8 +2,12 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -13,6 +17,17 @@ import (
 	"github.com/sre-oncall/scheduling/internal/rotation"
 	"github.com/sre-oncall/scheduling/internal/store"
 )
+
+// MembersClient fetches tenant members from Keycloak Admin API.
+type MembersClient interface {
+	GetMembers(ctx context.Context, slug string) ([]domain.Member, error)
+}
+
+// TokenIndex maintains the Redis hash for webhook token lookup.
+type TokenIndex interface {
+	Set(ctx context.Context, hash, tenantID string) error
+	Del(ctx context.Context, hash string) error
+}
 
 type Store interface {
 	CreateSchedule(ctx context.Context, s *domain.Schedule) error
@@ -29,15 +44,27 @@ type Store interface {
 	GetUserBySub(ctx context.Context, sub string) (string, error)
 	GetNotificationConfig(ctx context.Context, tenantID string) (*store.NotificationConfig, error)
 	UpsertNotificationConfig(ctx context.Context, c *store.NotificationConfig) error
+
+	CreateTenant(ctx context.Context, t *domain.Tenant) error
+	GetTenantBySlug(ctx context.Context, slug string) (*domain.Tenant, error)
+	ListTenants(ctx context.Context) ([]*domain.Tenant, error)
+	UpdateTenant(ctx context.Context, slug, name string) (*domain.Tenant, error)
+	DeleteTenant(ctx context.Context, slug string) error
+
+	CreateWebhookToken(ctx context.Context, tenantID, source, tokenHash string) (*domain.WebhookToken, error)
+	ListWebhookTokens(ctx context.Context, tenantID string) ([]*domain.WebhookToken, error)
+	DeleteWebhookToken(ctx context.Context, tenantID, id string) (string, error)
 }
 
 type Handler struct {
-	store  Store
-	logger *slog.Logger
+	store      Store
+	members    MembersClient
+	tokenIndex TokenIndex
+	logger     *slog.Logger
 }
 
-func New(store Store, logger *slog.Logger) *Handler {
-	return &Handler{store: store, logger: logger}
+func New(store Store, members MembersClient, tokenIndex TokenIndex, logger *slog.Logger) *Handler {
+	return &Handler{store: store, members: members, tokenIndex: tokenIndex, logger: logger}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -432,4 +459,268 @@ func (h *Handler) PutNotificationConfig(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, body)
+}
+
+// ── Tenants ───────────────────────────────────────────────────────────────────
+
+func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {
+	tenants, err := h.store.ListTenants(r.Context())
+	if err != nil {
+		h.logger.Error("list tenants", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if tenants == nil {
+		tenants = []*domain.Tenant{}
+	}
+	writeJSON(w, http.StatusOK, tenants)
+}
+
+func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Slug string `json:"slug"`
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Slug == "" || body.Name == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "slug and name required"})
+		return
+	}
+	t := &domain.Tenant{Slug: body.Slug, Name: body.Name}
+	if err := h.store.CreateTenant(r.Context(), t); errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, "slug already exists")
+		return
+	} else if err != nil {
+		h.logger.Error("create tenant", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+func (h *Handler) GetTenant(w http.ResponseWriter, r *http.Request) {
+	t, err := h.store.GetTenantBySlug(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *Handler) PatchTenant(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Name == "" {
+		writeError(w, http.StatusUnprocessableEntity, "name required")
+		return
+	}
+	t, err := h.store.UpdateTenant(r.Context(), chi.URLParam(r, "slug"), body.Name)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, t)
+}
+
+func (h *Handler) DeleteTenant(w http.ResponseWriter, r *http.Request) {
+	err := h.store.DeleteTenant(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Members ───────────────────────────────────────────────────────────────────
+
+func (h *Handler) GetMembers(w http.ResponseWriter, r *http.Request) {
+	if h.members == nil {
+		writeError(w, http.StatusServiceUnavailable, "keycloak admin not configured")
+		return
+	}
+	slug := chi.URLParam(r, "slug")
+	members, err := h.members.GetMembers(r.Context(), slug)
+	if err != nil {
+		h.logger.Error("get members", "slug", slug, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if members == nil {
+		members = []domain.Member{}
+	}
+	writeJSON(w, http.StatusOK, members)
+}
+
+// ── Webhook tokens ────────────────────────────────────────────────────────────
+
+func (h *Handler) ListWebhookTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := h.store.ListWebhookTokens(r.Context(), chi.URLParam(r, "slug"))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if tokens == nil {
+		tokens = []*domain.WebhookToken{}
+	}
+	writeJSON(w, http.StatusOK, tokens)
+}
+
+func (h *Handler) CreateWebhookToken(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	validSources := map[string]bool{"alertmanager": true, "grafana": true, "zabbix": true}
+	if !validSources[body.Source] {
+		writeError(w, http.StatusUnprocessableEntity, "source must be alertmanager, grafana, or zabbix")
+		return
+	}
+
+	raw, err := generateToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "token generation failed")
+		return
+	}
+	hash := hashToken(raw)
+	slug := chi.URLParam(r, "slug")
+
+	tok, err := h.store.CreateWebhookToken(r.Context(), slug, body.Source, hash)
+	if err != nil {
+		h.logger.Error("create webhook token", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if h.tokenIndex != nil {
+		if err := h.tokenIndex.Set(r.Context(), hash, slug); err != nil {
+			h.logger.Warn("token index set failed", "err", err)
+		}
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         tok.ID,
+		"tenant_id":  tok.TenantID,
+		"source":     tok.Source,
+		"token":      raw,
+		"created_at": tok.CreatedAt,
+	})
+}
+
+func (h *Handler) DeleteWebhookToken(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	tokenID := chi.URLParam(r, "tokenId")
+
+	hash, err := h.store.DeleteWebhookToken(r.Context(), slug, tokenID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	if h.tokenIndex != nil {
+		if err := h.tokenIndex.Del(r.Context(), hash); err != nil {
+			h.logger.Warn("token index del failed", "err", err)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Tenant notification config ─────────────────────────────────────────────────
+
+func (h *Handler) GetTenantNotificationConfig(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.store.GetNotificationConfig(r.Context(), chi.URLParam(r, "slug"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	// Mask webhook URL to show only scheme+host.
+	out := map[string]string{
+		"tenant_id":             cfg.TenantID,
+		"mattermost_webhook_url": maskURL(cfg.MattermostWebhookURL),
+		"mattermost_channel":    cfg.MattermostChannel,
+		"smtp_from":             cfg.SMTPFrom,
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) PutTenantNotificationConfig(w http.ResponseWriter, r *http.Request) {
+	var body store.NotificationConfig
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	body.TenantID = chi.URLParam(r, "slug")
+	if err := h.store.UpsertNotificationConfig(r.Context(), &body); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+func generateToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func maskURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	// Return only scheme://host
+	for _, prefix := range []string{"https://", "http://"} {
+		if len(rawURL) > len(prefix) && rawURL[:len(prefix)] == prefix {
+			rest := rawURL[len(prefix):]
+			slash := -1
+			for i, c := range rest {
+				if c == '/' {
+					slash = i
+					break
+				}
+			}
+			if slash >= 0 {
+				return fmt.Sprintf("%s%s/***", prefix, rest[:slash])
+			}
+		}
+	}
+	return "***"
 }

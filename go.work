@@ -1,11 +1,12 @@
 go 1.26.4
+
 toolchain go1.26.4
 
 use (
 	./pkg
-	./services/ingestion
-	./services/incident
-	./services/scheduling
 	./services/escalation
+	./services/incident
+	./services/ingestion
 	./services/notification
+	./services/scheduling
 )
