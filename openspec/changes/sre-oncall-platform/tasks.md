@@ -67,16 +67,16 @@
 
 ## 7. Сервис уведомлений (notification)
 
-- [ ] 7.1 Создать PostgreSQL-схему `notification`; миграции: таблицы `user_contacts`, `notification_log`
-- [ ] 7.2 Реализовать REST API контактной конфигурации (`/api/notifications/v1/{tenant}/contacts/{userId}`)
-- [ ] 7.3 Реализовать AMQP-консьюмер очереди `escalations.notification` (события `escalation.triggered`, `escalation.exhausted`); `oncall_user_id` и `oncall_username` берутся из payload события — HTTP-вызов в scheduling за on-call данными не нужен; для tenant notification config реализовать in-process LRU-кэш с TTL 5 минут (промах → HTTP в scheduling)
-- [ ] 7.4 Реализовать Email-диспетчер: формировать сообщение (ID инцидента, заголовок, severity, статус, временная метка), отправлять через SMTP с повторными попытками и backoff
-- [ ] 7.5 Реализовать Mattermost-диспетчер: формировать сообщение в канал тенанта (из `tenant_notification_config`), включать @mention `mattermost_username` дежурного если задан; POST на webhook URL с повторными попытками и backoff; DM не используется
-- [ ] 7.6 Реализовать Redis token-bucket rate-limiter на контакт (настраиваемый максимум и окно); при превышении — отбросить уведомление, записать `rate_limited` в `notification_log`, вывести warning в лог; без очереди на повтор
-- [ ] 7.7 Реализовать запись журнала доставки: фиксировать `delivered` / `failed` с деталями ошибок в `notification_log`
-- [ ] 7.8 Соблюдать `enabled_channels` для каждого пользователя: пропускать отключённые каналы
-- [ ] 7.9 Написать юнит-тесты для rate-limiter и логики диспетчеризации каналов
-- [ ] 7.10 Написать интеграционные тесты для потока AMQP-консьюмер → диспетчеризация → журнал
+- [x] 7.1 Создать PostgreSQL-схему `notification`; миграции: таблицы `user_contacts`, `notification_log`
+- [x] 7.2 Реализовать REST API контактной конфигурации (`/api/notifications/v1/{tenant}/contacts/{userId}`)
+- [x] 7.3 Реализовать AMQP-консьюмер очереди `escalations.notification` (события `escalation.triggered`, `escalation.exhausted`); `oncall_user_id` и `oncall_username` берутся из payload события — HTTP-вызов в scheduling за on-call данными не нужен; для tenant notification config реализовать in-process LRU-кэш с TTL 5 минут (промах → HTTP в scheduling)
+- [x] 7.4 Реализовать Email-диспетчер: формировать сообщение (ID инцидента, заголовок, severity, статус, временная метка), отправлять через SMTP с повторными попытками и backoff
+- [x] 7.5 Реализовать Mattermost-диспетчер: формировать сообщение в канал тенанта (из `tenant_notification_config`), включать @mention `mattermost_username` дежурного если задан; POST на webhook URL с повторными попытками и backoff; DM не используется
+- [x] 7.6 Реализовать Redis token-bucket rate-limiter на контакт (настраиваемый максимум и окно); при превышении — отбросить уведомление, записать `rate_limited` в `notification_log`, вывести warning в лог; без очереди на повтор
+- [x] 7.7 Реализовать запись журнала доставки: фиксировать `delivered` / `failed` с деталями ошибок в `notification_log`
+- [x] 7.8 Соблюдать `enabled_channels` для каждого пользователя: пропускать отключённые каналы
+- [x] 7.9 Написать юнит-тесты для rate-limiter и логики диспетчеризации каналов
+- [x] 7.10 Написать интеграционные тесты для потока AMQP-консьюмер → диспетчеризация → журнал
 
 ## 8. Управление тенантами
 

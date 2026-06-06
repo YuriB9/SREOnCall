@@ -11,6 +11,7 @@ import (
 type TriggeredEvent struct {
 	IncidentID     string `json:"incident_id"`
 	TenantID       string `json:"tenant_id"`
+	TenantSlug     string `json:"tenant_slug"`
 	Tier           int    `json:"tier"`
 	OncallUserID   string `json:"oncall_user_id"`
 	OncallUsername string `json:"oncall_username"`
@@ -20,6 +21,7 @@ type TriggeredEvent struct {
 type ExhaustedEvent struct {
 	IncidentID string `json:"incident_id"`
 	TenantID   string `json:"tenant_id"`
+	TenantSlug string `json:"tenant_slug"`
 }
 
 type Publisher struct {

@@ -105,6 +105,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 		if err := e.pub.PublishExhausted(ctx, publisher.ExhaustedEvent{
 			IncidentID: st.IncidentID,
 			TenantID:   st.TenantID,
+			TenantSlug: st.TenantSlug,
 		}); err != nil {
 			e.logger.Warn("publish exhausted failed", "incident_id", st.IncidentID, "err", err)
 		}
@@ -212,6 +213,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 	if err := e.pub.PublishTriggered(ctx, publisher.TriggeredEvent{
 		IncidentID:     st.IncidentID,
 		TenantID:       st.TenantID,
+		TenantSlug:     st.TenantSlug,
 		Tier:           tier.TierNumber,
 		OncallUserID:   userID,
 		OncallUsername: username,
