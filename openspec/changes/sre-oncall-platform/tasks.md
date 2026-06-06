@@ -54,16 +54,16 @@
 
 ## 6. Сервис эскалаций (escalation)
 
-- [ ] 6.1 Создать PostgreSQL-схему `escalation`; миграции: таблицы `policies`, `policy_tiers`, `incident_escalation_states`, `escalation_history`, `tenant_escalation_config` (tenant_id PK, default_policy_id FK → policies.id)
-- [ ] 6.2 Реализовать REST API управления политиками эскалации (`/api/escalations/v1/{tenant}/policies`) и API политики по умолчанию: PUT/GET/DELETE `/api/escalations/v1/{tenant}/default-policy`; PUT валидирует, что policy_id принадлежит тенанту
-- [ ] 6.3 Реализовать POST `/api/escalations/v1/{tenant}/incidents/{id}/policy` для привязки политики и запуска отслеживания с 1-го уровня
-- [ ] 6.4 Реализовать монитор состояния эскалации: опрашивать `incident_escalation_states` каждые 30 сек на наличие уровней с истёкшим `escalate_at`; переходить на следующий уровень или устанавливать `exhausted`
-- [ ] 6.5 Потреблять события из очереди `incidents.escalation`: `incident.created` → искать `default_escalation_policy_id` в `tenant_escalation_config`, при наличии авто-назначать политику; `incident.updated` → останавливать эскалацию при переходе инцидента в `acknowledged` или `resolved`
-- [ ] 6.6 При переходе уровня: запросить scheduling (`GET /schedules/{notify_schedule_id}/oncall`) за текущим дежурным; опубликовать обогащённое AMQP-событие `escalation.triggered` на exchange `escalations` с полями `incident_id`, `tenant_id`, `tier`, `oncall_user_id`, `oncall_username`; при исчерпании — `escalation.exhausted`
-- [ ] 6.7 Реализовать эндпоинт GET `/api/escalations/v1/{tenant}/incidents/{id}/state`
-- [ ] 6.8 Реализовать POST `/api/escalations/v1/{tenant}/incidents/{id}/escalate` (ручной переход)
-- [ ] 6.9 Написать юнит-тесты для логики перехода уровней и обработки исчерпания
-- [ ] 6.10 Написать интеграционные тесты: (a) авто-назначение: задать default-policy тенанту → опубликовать `incident.created` → проверить запись в `incident_escalation_states`; (b) таймаут: создать инцидент с политикой → смоделировать истечение таймаута → проверить переход уровня и AMQP-событие `escalation.triggered`
+- [x] 6.1 Создать PostgreSQL-схему `escalation`; миграции: таблицы `policies`, `policy_tiers`, `incident_escalation_states`, `escalation_history`, `tenant_escalation_config` (tenant_id PK, default_policy_id FK → policies.id)
+- [x] 6.2 Реализовать REST API управления политиками эскалации (`/api/escalations/v1/{tenant}/policies`) и API политики по умолчанию: PUT/GET/DELETE `/api/escalations/v1/{tenant}/default-policy`; PUT валидирует, что policy_id принадлежит тенанту
+- [x] 6.3 Реализовать POST `/api/escalations/v1/{tenant}/incidents/{id}/policy` для привязки политики и запуска отслеживания с 1-го уровня
+- [x] 6.4 Реализовать монитор состояния эскалации: опрашивать `incident_escalation_states` каждые 30 сек на наличие уровней с истёкшим `escalate_at`; переходить на следующий уровень или устанавливать `exhausted`
+- [x] 6.5 Потреблять события из очереди `incidents.escalation`: `incident.created` → искать `default_escalation_policy_id` в `tenant_escalation_config`, при наличии авто-назначать политику; `incident.updated` → останавливать эскалацию при переходе инцидента в `acknowledged` или `resolved`
+- [x] 6.6 При переходе уровня: запросить scheduling (`GET /schedules/{notify_schedule_id}/oncall`) за текущим дежурным; опубликовать обогащённое AMQP-событие `escalation.triggered` на exchange `escalations` с полями `incident_id`, `tenant_id`, `tier`, `oncall_user_id`, `oncall_username`; при исчерпании — `escalation.exhausted`
+- [x] 6.7 Реализовать эндпоинт GET `/api/escalations/v1/{tenant}/incidents/{id}/state`
+- [x] 6.8 Реализовать POST `/api/escalations/v1/{tenant}/incidents/{id}/escalate` (ручной переход)
+- [x] 6.9 Написать юнит-тесты для логики перехода уровней и обработки исчерпания
+- [x] 6.10 Написать интеграционные тесты: (a) авто-назначение: задать default-policy тенанту → опубликовать `incident.created` → проверить запись в `incident_escalation_states`; (b) таймаут: создать инцидент с политикой → смоделировать истечение таймаута → проверить переход уровня и AMQP-событие `escalation.triggered`
 
 ## 7. Сервис уведомлений (notification)
 
