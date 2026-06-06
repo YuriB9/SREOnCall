@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sre-oncall
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: oncall.local
+      http:
+        paths:
+          # Ingestion: /api/ingest/v1/... → ingestion service
+          - path: /api/ingest(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: ingestion
+                port:
+                  number: 80
+
+          # Incident: /api/incidents/v1/... → incident service
+          - path: /api/incidents(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: incident
+                port:
+                  number: 80
+
+          # Scheduling: /api/schedules/v1/... → scheduling service
+          - path: /api/schedules(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: scheduling
+                port:
+                  number: 80
+
+          # Notification: /api/notifications/v1/... → notification service
+          - path: /api/notifications(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: notification
+                port:
+                  number: 80
+
+          # Escalation has no public REST API; no ingress rule needed

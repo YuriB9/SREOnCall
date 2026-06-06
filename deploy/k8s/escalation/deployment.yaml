@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: escalation
+  labels:
+    app: escalation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: escalation
+  template:
+    metadata:
+      labels:
+        app: escalation
+    spec:
+      containers:
+        - name: escalation
+          image: sre-oncall/escalation:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: escalation-config
+            - secretRef:
+                name: escalation-secret
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
