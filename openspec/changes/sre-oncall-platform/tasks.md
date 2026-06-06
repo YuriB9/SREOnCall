@@ -17,14 +17,14 @@
 
 ## 3. Сервис приёма алертов (ingestion)
 
-- [ ] 3.1 Создать PostgreSQL-схему `ingestion`; миграция: таблица `raw_alerts` (id, tenant_id, fingerprint, source, payload, received_at, deduplicated)
-- [ ] 3.2 Реализовать обработчик вебхука Prometheus Alertmanager: разбор payload v4, нормализация в канонический Alert
-- [ ] 3.3 Реализовать обработчик вебхука Grafana: разбор payload, нормализация в канонический Alert, обработка `state: ok` как resolved
-- [ ] 3.4 Реализовать middleware идентификации тенанта: вычислить SHA-256 хэш `X-Webhook-Token`, выполнить `HGET oncall:tokens:{hash}` в Redis → получить `tenant_id`; возвращать HTTP 401 при отсутствии совпадения; scheduling обновляет этот Redis-индекс при создании/отзыве токенов
-- [ ] 3.5 Реализовать дедупликацию через Redis: SHA-256 fingerprint по отсортированным лейблам + source + tenant_id; SETNX с настраиваемым TTL; удаление ключа для resolved-алерта
-- [ ] 3.6 Реализовать AMQP-публикатор на exchange `alerts` (routing key `alert.received`) с повторными попытками и backoff при ошибках
-- [ ] 3.7 Написать юнит-тесты для логики нормализации (все три источника), дедупликации и middleware токена
-- [ ] 3.8 Написать интеграционный тест: POST на каждый эндпоинт с валидным токеном → проверить публикацию сообщения в RabbitMQ с корректным tenant_id
+- [x] 3.1 Создать PostgreSQL-схему `ingestion`; миграция: таблица `raw_alerts` (id, tenant_id, fingerprint, source, payload, received_at, deduplicated)
+- [x] 3.2 Реализовать обработчик вебхука Prometheus Alertmanager: разбор payload v4, нормализация в канонический Alert
+- [x] 3.3 Реализовать обработчик вебхука Grafana: разбор payload, нормализация в канонический Alert, обработка `state: ok` как resolved
+- [x] 3.4 Реализовать middleware идентификации тенанта: вычислить SHA-256 хэш `X-Webhook-Token`, выполнить `HGET oncall:tokens:{hash}` в Redis → получить `tenant_id`; возвращать HTTP 401 при отсутствии совпадения; scheduling обновляет этот Redis-индекс при создании/отзыве токенов
+- [x] 3.5 Реализовать дедупликацию через Redis: SHA-256 fingerprint по отсортированным лейблам + source + tenant_id; SETNX с настраиваемым TTL; удаление ключа для resolved-алерта
+- [x] 3.6 Реализовать AMQP-публикатор на exchange `alerts` (routing key `alert.received`) с повторными попытками и backoff при ошибках
+- [x] 3.7 Написать юнит-тесты для логики нормализации (все источники), дедупликации и middleware токена
+- [x] 3.8 Написать интеграционный тест: POST на каждый эндпоинт с валидным токеном → проверить публикацию сообщения в RabbitMQ с корректным tenant_id
 
 ## 4. Сервис инцидентов (incident)
 
