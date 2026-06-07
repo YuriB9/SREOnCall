@@ -67,13 +67,53 @@
 
 ## 7. UI политик эскалации
 
-- [ ] 7.1 Собрать `EscalationPoliciesPage` со списком политик: название, количество шагов, бейдж «По умолчанию» и кнопки действий (редактировать, удалить, сделать по умолчанию)
-- [ ] 7.2 Реализовать диалог подтверждения удаления; привязать к mutation `useDeletePolicy`
-- [ ] 7.3 Собрать `PolicyEditorPage` (создание/редактирование): вертикальный степпер, рендерящий каждый шаг политики как карточку
-- [ ] 7.4 Карточка шага: выпадающий список расписаний (из `useSchedules`), поле таймаута (целое число, мин. 1), кнопка удаления, стрелки вверх/вниз
-- [ ] 7.5 Добавить валидацию шагов: встроенная ошибка при не выбранном расписании; блокировка кнопки сохранения до заполнения всех шагов
-- [ ] 7.6 Привязать кнопку «Сохранить» к `useUpdatePolicy` или `useCreatePolicy` в зависимости от режима создания/редактирования; показывать toast об успехе
-- [ ] 7.7 Привязать действие «Сделать по умолчанию» к `useSetDefaultPolicy`; обновлять список для актуализации бейджа «По умолчанию»
+- [x] 7.1 Собрать `EscalationPoliciesPage` со списком политик: название, количество шагов, бейдж «По умолчанию» и кнопки действий (редактировать, удалить, сделать по умолчанию)
+- [x] 7.2 Реализовать диалог подтверждения удаления; привязать к mutation `useDeletePolicy`
+- [x] 7.3 Собрать `PolicyEditorPage` (создание/редактирование): вертикальный степпер, рендерящий каждый шаг политики как карточку
+- [x] 7.4 Карточка шага: выпадающий список расписаний (из `useSchedules`), поле таймаута (целое число, мин. 1), кнопка удаления, стрелки вверх/вниз
+- [x] 7.5 Добавить валидацию шагов: встроенная ошибка при не выбранном расписании; блокировка кнопки сохранения до заполнения всех шагов
+- [x] 7.6 Привязать кнопку «Сохранить» к `useUpdatePolicy` или `useCreatePolicy` в зависимости от режима создания/редактирования; показывать toast об успехе
+- [x] 7.7 Привязать действие «Сделать по умолчанию» к `useSetDefaultPolicy`; обновлять список для актуализации бейджа «По умолчанию»
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+  БУДУЩАЯ ФИЧА: Управление эскалацией инцидента
+  Эндпоинты бекенда реализованы, фронтенд не реализован.
+  Запланировать отдельным изменением (openspec new change incident-escalation-ui).
+
+  Бекенд API (порт 8083):
+    POST   /api/escalations/v1/{tenant}/incidents/{incidentId}/policy
+           Тело: { policy_id: string, tenant_slug: string }
+           Ответ: EscalationState — активирует политику для инцидента
+    GET    /api/escalations/v1/{tenant}/incidents/{incidentId}/state
+           Ответ: EscalationState { id, incident_id, tenant_id, policy_id,
+                  current_tier, status, escalate_at, created_at, updated_at }
+    POST   /api/escalations/v1/{tenant}/incidents/{incidentId}/escalate
+           Тело: пустое — вручную продвигает на следующий уровень
+           Ответ: обновлённый EscalationState
+    GET    /api/escalations/v1/{tenant}/incidents/{incidentId}/history
+           Ответ: EscalationHistory[] { id, incident_id, event_type,
+                  tier, oncall_user_id, oncall_username, created_at }
+
+  Что нужно сделать на фронте:
+  — Хуки в src/api/escalations.ts:
+      useEscalationState(tenant, incidentId)  → GET /state, поллинг 30s
+      useAttachPolicy(tenant, incidentId)     → POST /policy
+      useManualEscalate(tenant, incidentId)   → POST /escalate
+      useEscalationHistory(tenant, incidentId)→ GET /history
+  — Типы в src/api/types.ts:
+      EscalationState, EscalationHistory (поля перечислены выше)
+  — В IncidentDetailPanel (src/pages/IncidentDetailPanel.tsx):
+      Новый раздел / вкладка «Эскалация»:
+        · Виджет текущего состояния: текущий уровень (tier), статус,
+          время следующей автоэскалации (escalate_at, обратный отсчёт)
+        · Кнопка «Назначить политику» → модалка с select из useEscalationPolicies
+          (POST /policy), показывать только если policy не назначена
+        · Кнопка «Эскалировать сейчас» → POST /escalate с confirm-диалогом,
+          активна только при status=active и current_tier < max_tier
+        · Хронология: список событий из GET /history (event_type: triggered /
+          tier_advanced / acknowledged / resolved / exhausted), аналог вкладки «История»
+  — Статус escalation.status отображать в карточке инцидента в списке (опционально)
+════════════════════════════════════════════════════════════════════════════ -->
 
 ## 8. UI настроек тенанта
 

@@ -6,6 +6,7 @@ import { TenantGuard } from '@/auth/TenantGuard'
 import { GlobalLayout } from '@/layouts/GlobalLayout'
 import { CallbackPage } from '@/pages/CallbackPage'
 import { EscalationPoliciesPage } from '@/pages/EscalationPoliciesPage'
+import { PolicyEditorPage } from '@/pages/PolicyEditorPage'
 import { ForbiddenPage } from '@/pages/ForbiddenPage'
 import { IncidentListPage } from '@/pages/IncidentListPage'
 import { ProfilePage } from '@/pages/ProfilePage'
@@ -46,6 +47,8 @@ export const router = createBrowserRouter([
           { path: 'incidents', element: <IncidentListPage /> },
           { path: 'schedules', element: <SchedulesPage /> },
           { path: 'escalations', element: <EscalationPoliciesPage /> },
+          { path: 'escalations/new', element: <PolicyEditorPage /> },
+          { path: 'escalations/:policyId/edit', element: <PolicyEditorPage /> },
           {
             path: 'settings',
             element: (

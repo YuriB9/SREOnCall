@@ -94,20 +94,25 @@ export interface Override {
 
 // ─── Escalation Policies ──────────────────────────────────────────────────────
 
-export interface EscalationStep {
-  order: number
-  schedule_id: string
-  schedule_name?: string
-  timeout_minutes: number
+export interface PolicyTier {
+  id?: string
+  policy_id?: string
+  tier_number: number
+  timeout_seconds: number
+  notify_schedule_id: string
 }
 
 export interface EscalationPolicy {
   id: string
-  tenant: string
+  tenant_id: string
   name: string
-  is_default: boolean
-  steps: EscalationStep[]
+  tiers: PolicyTier[]
   created_at: string
+}
+
+export interface TenantEscalationConfig {
+  tenant_id: string
+  default_policy_id: string | null
   updated_at: string
 }
 
