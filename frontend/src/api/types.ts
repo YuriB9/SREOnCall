@@ -120,10 +120,9 @@ export interface TenantEscalationConfig {
 
 export interface WebhookToken {
   id: string
-  tenant: string
-  source_label: string
+  tenant_id: string
+  source: string
   created_at: string
-  created_by: string
 }
 
 export interface WebhookTokenCreated extends WebhookToken {
@@ -131,7 +130,7 @@ export interface WebhookTokenCreated extends WebhookToken {
 }
 
 export interface NotificationConfig {
-  tenant: string
+  tenant_id: string
   mattermost_webhook_url: string
   mattermost_channel: string
   smtp_from: string

@@ -30,9 +30,9 @@ export function useWebhookTokens(tenant: string) {
 export function useCreateToken(tenant: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (source_label: string) =>
+    mutationFn: (source: string) =>
       apiClient
-        .post<WebhookTokenCreated>(`/schedules/v1/tenants/${tenant}/webhook-tokens`, { source_label })
+        .post<WebhookTokenCreated>(`/schedules/v1/tenants/${tenant}/webhook-tokens`, { source })
         .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tenantSettingsKeys(tenant).tokens() })
