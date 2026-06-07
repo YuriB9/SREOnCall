@@ -2,12 +2,12 @@
 
 ## 1. Scaffolding проекта
 
-- [ ] 1.1 Инициализировать проект Vite + React + TypeScript в директории `frontend/` через `npm create vite@latest`
-- [ ] 1.2 Установить и настроить Tailwind CSS с `darkMode: 'class'` и Shadcn/ui CLI
-- [ ] 1.3 Установить `react-router-dom` v6, `@tanstack/react-query` v5, `oidc-client-ts`, `date-fns`, `date-fns-tz`
-- [ ] 1.4 Настроить path aliases (`@/` → `src/`) в `vite.config.ts` и `tsconfig.json`
-- [ ] 1.5 Настроить ESLint + Prettier с общей конфигурацией (TypeScript, React, порядок импортов)
-- [ ] 1.6 Добавить Dockerfile для раздачи статики через nginx и манифест Kubernetes Deployment в `k8s/frontend/`
+- [x] 1.1 Инициализировать проект Vite + React + TypeScript в директории `frontend/` через `npm create vite@latest`
+- [x] 1.2 Установить и настроить Tailwind CSS с `darkMode: 'class'` и Shadcn/ui CLI
+- [x] 1.3 Установить `react-router-dom` v6, `@tanstack/react-query` v5, `oidc-client-ts`, `date-fns`, `date-fns-tz`
+- [x] 1.4 Настроить path aliases (`@/` → `src/`) в `vite.config.ts` и `tsconfig.json`
+- [x] 1.5 Настроить ESLint + Prettier с общей конфигурацией (TypeScript, React, порядок импортов)
+- [x] 1.6 Добавить Dockerfile для раздачи статики через nginx и манифест Kubernetes Deployment в `./deploy/k8s/frontend/`
 
 ## 2. Оболочка аутентификации
 

@@ -47,3 +47,12 @@ spec:
                   number: 80
 
           # Escalation has no public REST API; no ingress rule needed
+
+          # Frontend SPA — catch-all, должен быть последним
+          - path: /()(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
