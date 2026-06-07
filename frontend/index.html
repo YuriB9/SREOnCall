@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>SRE OnCall</title>
+    <script>
+      (function () {
+        var s = localStorage.getItem('oncall.colorScheme') || 'dark'
+        document.documentElement.classList.toggle('dark', s === 'dark')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
