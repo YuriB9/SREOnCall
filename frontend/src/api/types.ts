@@ -54,40 +54,30 @@ export interface HistoryEntry {
 
 // ─── Schedules ────────────────────────────────────────────────────────────────
 
-export interface RotationMember {
-  user_id: string
-  username: string
-  display_name: string
-}
-
 export interface Schedule {
   id: string
-  tenant: string
+  tenant_id: string
   name: string
   timezone: string
-  members: RotationMember[]
+  rotation: string[]
+  shift_duration: string
+  start_date: string
   created_at: string
+  updated_at: string
 }
 
 export interface ShiftWindow {
-  schedule_id: string
   user_id: string
-  username: string
-  display_name: string
-  start: string
-  end: string
+  start_at: string
+  end_at: string
   is_override: boolean
 }
 
 export interface OnCallNow {
-  schedule_id: string
-  schedule_name: string
   user_id: string
   username: string
-  display_name: string
-  escalation_level: number
-  shift_start: string
-  shift_end: string
+  starts_at: string
+  ends_at: string
 }
 
 export interface Override {
@@ -144,9 +134,7 @@ export interface NotificationConfig {
 
 export interface Member {
   user_id: string
-  username: string
-  display_name: string
-  email: string
+  preferred_username: string
   role: 'member' | 'admin'
 }
 

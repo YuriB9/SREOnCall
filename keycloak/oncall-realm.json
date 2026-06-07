@@ -133,6 +133,38 @@
       "groups": ["/team-b", "/team-b/admins"]
     },
     {
+      "username": "charlie",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Charlie",
+      "lastName": "Chaplin",
+      "email": "charlie@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "charlie123",
+          "temporary": false
+        }
+      ],
+      "groups": ["/team-a"]
+    },
+    {
+      "username": "diana",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Diana",
+      "lastName": "Prince",
+      "email": "diana@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "diana123",
+          "temporary": false
+        }
+      ],
+      "groups": ["/team-a"]
+    },
+    {
       "username": "service-account-oncall-api",
       "enabled": true,
       "emailVerified": false,

@@ -10,7 +10,7 @@ export function scheduleKeys(tenant: string) {
   return {
     all: [tenant, 'schedules'] as const,
     list: () => [tenant, 'schedules', 'list'] as const,
-    oncall: () => [tenant, 'schedules', 'oncall'] as const,
+    oncall: (scheduleId: string) => [tenant, 'schedules', scheduleId, 'oncall'] as const,
     window: (scheduleId: string, from: string, to: string) =>
       [tenant, 'schedules', scheduleId, 'window', from, to] as const,
     overrides: (scheduleId: string) => [tenant, 'schedules', scheduleId, 'overrides'] as const,
@@ -29,16 +29,17 @@ export function useSchedules(tenant: string) {
   })
 }
 
-export function useOnCallNow(tenant: string) {
+export function useOnCallNow(tenant: string, scheduleId: string) {
   return useQuery({
-    queryKey: scheduleKeys(tenant).oncall(),
+    queryKey: scheduleKeys(tenant).oncall(scheduleId),
     queryFn: async () => {
-      const { data } = await apiClient.get<OnCallNow | null>(`/schedules/v1/${tenant}/oncall`, {
-        params: { at: 'now' },
-      })
+      const { data } = await apiClient.get<OnCallNow | null>(
+        `/schedules/v1/${tenant}/schedules/${scheduleId}/oncall`,
+      )
       return data
     },
     refetchInterval: 60_000,
+    enabled: Boolean(scheduleId),
   })
 }
 
@@ -90,8 +91,8 @@ function extractConflict(err: unknown): never {
 export interface CreateOverrideInput {
   scheduleId: string
   user_id: string
-  start: string
-  end: string
+  start_at: string
+  end_at: string
 }
 
 export function useCreateOverride(tenant: string) {

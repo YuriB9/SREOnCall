@@ -20,7 +20,7 @@ export function useWebhookTokens(tenant: string) {
     queryKey: tenantSettingsKeys(tenant).tokens(),
     queryFn: async () => {
       const { data } = await apiClient.get<WebhookToken[]>(
-        `/schedules/v1/${tenant}/webhook-tokens`,
+        `/schedules/v1/tenants/${tenant}/webhook-tokens`,
       )
       return data
     },
@@ -32,7 +32,7 @@ export function useCreateToken(tenant: string) {
   return useMutation({
     mutationFn: (source_label: string) =>
       apiClient
-        .post<WebhookTokenCreated>(`/schedules/v1/${tenant}/webhook-tokens`, { source_label })
+        .post<WebhookTokenCreated>(`/schedules/v1/tenants/${tenant}/webhook-tokens`, { source_label })
         .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tenantSettingsKeys(tenant).tokens() })
@@ -44,7 +44,7 @@ export function useRevokeToken(tenant: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (tokenId: string) =>
-      apiClient.delete(`/schedules/v1/${tenant}/webhook-tokens/${tokenId}`),
+      apiClient.delete(`/schedules/v1/tenants/${tenant}/webhook-tokens/${tokenId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tenantSettingsKeys(tenant).tokens() })
     },
@@ -58,7 +58,7 @@ export function useNotificationConfig(tenant: string) {
     queryKey: tenantSettingsKeys(tenant).notificationConfig(),
     queryFn: async () => {
       const { data } = await apiClient.get<NotificationConfig>(
-        `/schedules/v1/${tenant}/notification-config`,
+        `/schedules/v1/tenants/${tenant}/notification-config`,
       )
       return data
     },
@@ -70,7 +70,7 @@ export function useSaveNotificationConfig(tenant: string) {
   return useMutation({
     mutationFn: (body: Partial<NotificationConfig>) =>
       apiClient
-        .patch<NotificationConfig>(`/schedules/v1/${tenant}/notification-config`, body)
+        .put<NotificationConfig>(`/schedules/v1/tenants/${tenant}/notification-config`, body)
         .then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tenantSettingsKeys(tenant).notificationConfig() })
@@ -84,7 +84,7 @@ export function useMembers(tenant: string) {
   return useQuery({
     queryKey: tenantSettingsKeys(tenant).members(),
     queryFn: async () => {
-      const { data } = await apiClient.get<Member[]>(`/schedules/v1/${tenant}/members`)
+      const { data } = await apiClient.get<Member[]>(`/schedules/v1/tenants/${tenant}/members`)
       return data
     },
   })
