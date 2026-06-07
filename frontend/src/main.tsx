@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 
 import { AuthProvider } from '@/auth/AuthProvider'
+import { Toaster } from '@/components/Toaster'
 
 import { router } from './routes'
 
@@ -20,6 +21,7 @@ createRoot(document.getElementById('root')!).render(
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
+        <Toaster />
       </QueryClientProvider>
     </AuthProvider>
   </StrictMode>,

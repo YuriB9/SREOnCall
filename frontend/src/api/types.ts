@@ -5,56 +5,50 @@ export type IncidentSeverity = 'critical' | 'high' | 'medium' | 'low'
 
 export interface Incident {
   id: string
-  tenant: string
+  tenant_id: string
   title: string
   status: IncidentStatus
   severity: IncidentSeverity
-  source: string
+  labels?: Record<string, string>
   created_at: string
   updated_at: string
-  acknowledged_by?: string
-  resolved_at?: string
+  acknowledged_by?: string | null
+  acknowledged_at?: string | null
+  resolved_at?: string | null
 }
 
 export interface IncidentListResponse {
   incidents: Incident[]
-  total: number
-  page: number
-  page_size: number
+  next_cursor: string
 }
 
 export interface Alert {
   id: string
   incident_id: string
   fingerprint: string
-  labels: Record<string, string>
+  source: string
+  group_key?: string
   status: 'firing' | 'resolved'
-  started_at: string
-  resolved_at?: string
+  attached_at: string
 }
 
 export interface Comment {
   id: string
   incident_id: string
-  author: string
-  text: string
+  author_id: string
+  body: string
   created_at: string
 }
 
-export type HistoryEventKind =
-  | 'created'
-  | 'status_changed'
-  | 'acknowledged'
-  | 'resolved'
-  | 'escalated'
-  | 'comment'
+export type HistoryEventKind = 'status_change' | 'label_change' | 'comment_added'
 
 export interface HistoryEntry {
   id: string
   incident_id: string
   kind: HistoryEventKind
-  actor?: string
-  detail?: string
+  author?: string
+  old_value?: string
+  new_value?: string
   occurred_at: string
 }
 

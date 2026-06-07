@@ -7,8 +7,8 @@ export interface IncidentFilters {
   status?: string
   severity?: string
   source?: string
-  page?: number
-  page_size?: number
+  cursor?: string
+  limit?: number
 }
 
 export function incidentKeys(tenant: string) {
@@ -141,7 +141,7 @@ export function usePostComment(tenant: string, incidentId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (text: string) =>
-      apiClient.post<Comment>(`/incidents/v1/${tenant}/incidents/${incidentId}/comments`, { text }),
+      apiClient.post<Comment>(`/incidents/v1/${tenant}/incidents/${incidentId}/comments`, { body: text }),
 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: incidentKeys(tenant).comments(incidentId) })
