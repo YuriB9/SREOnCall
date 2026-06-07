@@ -1,8 +1,8 @@
 import { Bell, BellOff, Calendar, GitBranch, LogOut, Moon, Settings, Siren, Sun } from 'lucide-react'
 import { NavLink, Outlet, useParams } from 'react-router-dom'
 
-import { useAuth } from '@/auth/AuthProvider'
 import { SessionBanner } from '@/auth/SessionBanner'
+import { useAuth } from '@/auth/useAuth'
 import { usePermissions } from '@/auth/usePermissions'
 import { useAudioEnabled } from '@/hooks/useAudioEnabled'
 import { useTheme } from '@/hooks/useTheme'

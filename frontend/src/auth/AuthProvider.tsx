@@ -1,7 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-
 import type { User } from 'oidc-client-ts'
+import { type ReactNode,useCallback, useEffect, useState } from 'react'
 
+import { AuthContext } from './authContext'
 import { userManager } from './oidcConfig'
 
 // Dev-only mock: set VITE_MOCK_AUTH_GROUPS=/team-alpha,/team-alpha/admins in .env.local
@@ -21,22 +21,15 @@ function buildMockUser(): User | null {
   } as unknown as User
 }
 
-interface AuthContextValue {
-  user: User | null
-  loading: boolean
-  signIn: () => Promise<void>
-  signOut: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
+// Computed once at module load — env vars are static
+const MOCK_USER = buildMockUser()
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const mockUser = buildMockUser()
-  const [user, setUser] = useState<User | null>(mockUser)
-  const [loading, setLoading] = useState(mockUser === null)
+  const [user, setUser] = useState<User | null>(MOCK_USER)
+  const [loading, setLoading] = useState(MOCK_USER === null)
 
   useEffect(() => {
-    if (mockUser) return // skip OIDC in mock mode
+    if (MOCK_USER) return // skip OIDC in mock mode
 
     userManager.getUser().then((u) => {
       setUser(u)
@@ -70,10 +63,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
 }

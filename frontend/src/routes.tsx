@@ -1,4 +1,4 @@
-import { Navigate, Outlet, createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter,Navigate, Outlet } from 'react-router-dom'
 
 import { AdminGuard } from '@/auth/AdminGuard'
 import { RequireAuth } from '@/auth/RequireAuth'

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 type KeyMap = Record<string, () => void>
 
@@ -6,7 +6,10 @@ const BLOCKED_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
 
 export function useKeyMap(bindings: KeyMap) {
   const ref = useRef(bindings)
-  ref.current = bindings
+
+  useLayoutEffect(() => {
+    ref.current = bindings
+  })
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {

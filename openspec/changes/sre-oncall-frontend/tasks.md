@@ -30,15 +30,15 @@
 
 ## 4. Слой API-клиента
 
-- [ ] 4.1 Создать `src/api/client.ts` — обёртка над axios (или fetch), подставляющая `Authorization: Bearer <token>` из `sessionStorage` в каждый запрос
-- [ ] 4.2 Написать TypeScript-типы для всех форм ответов бэкенда (Incident, Alert, Comment, HistoryEntry, Schedule, Override, EscalationPolicy, WebhookToken, NotificationConfig, UserContacts)
-- [ ] 4.3 Создать модуль query-хуков `src/api/incidents.ts`: `useIncidents(tenant, filters)`, `useIncident(tenant, id)`, `useIncidentAlerts`, `useIncidentHistory`, `useIncidentComments`
-- [ ] 4.4 Создать mutation-хуки: `useAcknowledgeIncident`, `useResolveIncident`, `usePostComment` — с оптимистичными обновлениями и откатом
-- [ ] 4.5 Создать query-хуки `src/api/schedules.ts`: `useSchedules(tenant)`, `useOnCallNow(tenant)`, `useScheduleWindow(tenant, scheduleId, from, to)`
-- [ ] 4.6 Создать mutation-хуки: `useCreateOverride`, `useDeleteOverride` с извлечением ошибки 409-конфликта
-- [ ] 4.7 Создать query/mutation-хуки `src/api/escalations.ts`: `useEscalationPolicies`, `useCreatePolicy`, `useUpdatePolicy`, `useDeletePolicy`, `useSetDefaultPolicy`
-- [ ] 4.8 Создать query/mutation-хуки `src/api/tenantSettings.ts`: `useWebhookTokens`, `useCreateToken`, `useRevokeToken`, `useNotificationConfig`, `useSaveNotificationConfig`, `useMembers`
-- [ ] 4.9 Создать query/mutation-хуки `src/api/profile.ts`: `useUserContacts`, `useSaveUserContacts`
+- [x] 4.1 Создать `src/api/client.ts` — обёртка над axios, подставляющая `Authorization: Bearer <token>` из `sessionStorage` в каждый запрос
+- [x] 4.2 Написать TypeScript-типы для всех форм ответов бэкенда (Incident, Alert, Comment, HistoryEntry, Schedule, Override, EscalationPolicy, WebhookToken, NotificationConfig, UserContacts)
+- [x] 4.3 Создать модуль query-хуков `src/api/incidents.ts`: `useIncidents(tenant, filters)`, `useIncident(tenant, id)`, `useIncidentAlerts`, `useIncidentHistory`, `useIncidentComments`
+- [x] 4.4 Создать mutation-хуки: `useAcknowledgeIncident`, `useResolveIncident`, `usePostComment` — с оптимистичными обновлениями и откатом
+- [x] 4.5 Создать query-хуки `src/api/schedules.ts`: `useSchedules(tenant)`, `useOnCallNow(tenant)`, `useScheduleWindow(tenant, scheduleId, from, to)`
+- [x] 4.6 Создать mutation-хуки: `useCreateOverride`, `useDeleteOverride` с извлечением ошибки 409-конфликта
+- [x] 4.7 Создать query/mutation-хуки `src/api/escalations.ts`: `useEscalationPolicies`, `useCreatePolicy`, `useUpdatePolicy`, `useDeletePolicy`, `useSetDefaultPolicy`
+- [x] 4.8 Создать query/mutation-хуки `src/api/tenantSettings.ts`: `useWebhookTokens`, `useCreateToken`, `useRevokeToken`, `useNotificationConfig`, `useSaveNotificationConfig`, `useMembers`
+- [x] 4.9 Создать query/mutation-хуки `src/api/profile.ts`: `useUserContacts`, `useSaveUserContacts`
 
 ## 5. Дашборд инцидентов
 

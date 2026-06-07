@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 
-import { useAuth } from './AuthProvider'
+import { useAuth } from './useAuth'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading, signIn } = useAuth()

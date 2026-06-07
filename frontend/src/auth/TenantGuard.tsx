@@ -1,5 +1,4 @@
 import { type ReactNode } from 'react'
-
 import { useParams } from 'react-router-dom'
 
 import { ForbiddenPage } from '@/pages/ForbiddenPage'

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { useAuth } from './AuthProvider'
 import { userManager } from './oidcConfig'
+import { useAuth } from './useAuth'
 
 const COUNTDOWN_SECONDS = 30
 
