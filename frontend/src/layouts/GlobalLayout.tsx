@@ -1,5 +1,5 @@
 import { Bell, BellOff, Calendar, GitBranch, LogOut, Moon, Settings, Siren, Sun } from 'lucide-react'
-import { NavLink, Outlet, useParams } from 'react-router-dom'
+import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
 
 import { SessionBanner } from '@/auth/SessionBanner'
 import { useAuth } from '@/auth/useAuth'
@@ -61,9 +61,13 @@ export function GlobalLayout() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Header */}
           <header className="flex h-12 flex-shrink-0 items-center justify-end gap-3 border-b px-4">
-            <span className="mr-auto text-sm text-muted-foreground">
+            <Link
+              to="/profile"
+              className="mr-auto text-sm text-muted-foreground hover:text-foreground hover:underline"
+              title="Мой профиль"
+            >
               {user?.profile.preferred_username}
-            </span>
+            </Link>
 
             <button
               onClick={() => setAudioEnabled(!audioEnabled)}

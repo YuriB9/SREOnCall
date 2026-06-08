@@ -147,8 +147,12 @@ export interface Member {
 export type NotificationChannel = 'email' | 'mattermost'
 
 export interface UserContacts {
+  id?: string
   user_id: string
+  tenant_id?: string
   mattermost_username: string
   email: string
   enabled_channels: NotificationChannel[]
+  created_at?: string
+  updated_at?: string
 }

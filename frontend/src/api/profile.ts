@@ -1,27 +1,48 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from './client'
-import type { UserContacts } from './types'
+import type { NotificationChannel, UserContacts } from './types'
 
-const CONTACTS_KEY = ['user', 'contacts'] as const
+// Backend: GET/PUT /api/notifications/v1/{tenant}/contacts/{userId}
+// (notification service, not scheduling service)
 
-export function useUserContacts() {
+function contactsKey(tenant: string, userId: string) {
+  return ['user', 'contacts', tenant, userId] as const
+}
+
+export interface ContactsInput {
+  email: string
+  mattermost_username: string
+  enabled_channels: NotificationChannel[]
+}
+
+export function useUserContacts(tenant: string, userId: string) {
   return useQuery({
-    queryKey: CONTACTS_KEY,
+    queryKey: contactsKey(tenant, userId),
     queryFn: async () => {
-      const { data } = await apiClient.get<UserContacts>('/schedules/v1/users/me/contacts')
-      return data
+      try {
+        const { data } = await apiClient.get<UserContacts>(
+          `/notifications/v1/${tenant}/contacts/${userId}`,
+        )
+        return data
+      } catch {
+        // 404 = no contacts configured yet
+        return null
+      }
     },
+    enabled: Boolean(tenant && userId),
   })
 }
 
-export function useSaveUserContacts() {
+export function useSaveUserContacts(tenant: string, userId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: Partial<UserContacts>) =>
-      apiClient.put<UserContacts>('/schedules/v1/users/me/contacts', body).then((r) => r.data),
+    mutationFn: (body: ContactsInput) =>
+      apiClient
+        .put<UserContacts>(`/notifications/v1/${tenant}/contacts/${userId}`, body)
+        .then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: CONTACTS_KEY })
+      qc.invalidateQueries({ queryKey: contactsKey(tenant, userId) })
     },
   })
 }
