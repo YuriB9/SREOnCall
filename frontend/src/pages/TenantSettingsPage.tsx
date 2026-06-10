@@ -323,11 +323,14 @@ function NotificationConfigSection({ tenant }: { tenant: string }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!validate()) return
+    // Не отправляем mattermost_webhook_url, если поле не заполнялось:
+    // пустое значение трактуется сервером как «оставить текущее», а лишнее
+    // поле в теле не должно затирать сохранённый вебхук.
     const body: Partial<NotificationConfig> = {
-      mattermost_webhook_url: webhookUrl,
       mattermost_channel: channel,
       smtp_from: smtpFrom,
     }
+    if (webhookUrl) body.mattermost_webhook_url = webhookUrl
     saveConfig.mutate(body, {
       onSuccess: () => showToast('Конфигурация сохранена', 'success'),
       onError: () => showToast('Не удалось сохранить конфигурацию'),
@@ -355,7 +358,7 @@ function NotificationConfigSection({ tenant }: { tenant: string }) {
           {maskedWebhookUrl && (
             <p className="text-xs text-muted-foreground">
               Текущий URL скрыт: <span className="font-mono">{maskedWebhookUrl}</span>
-              {' — '}введите полный URL для изменения, или оставьте поле пустым, чтобы очистить.
+              {' — '}введите полный URL для изменения, или оставьте поле пустым, чтобы сохранить текущий.
             </p>
           )}
         </div>

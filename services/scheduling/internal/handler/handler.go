@@ -687,11 +687,32 @@ func (h *Handler) PutTenantNotificationConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 	body.TenantID = chi.URLParam(r, "slug")
+
+	// Empty or missing webhook URL means "keep the stored value": the UI only
+	// ever sees the masked URL (see GetTenantNotificationConfig) and must not
+	// be able to wipe the real one by submitting the field unfilled.
+	if body.MattermostWebhookURL == "" {
+		cur, err := h.store.GetNotificationConfig(r.Context(), body.TenantID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if cur != nil {
+			body.MattermostWebhookURL = cur.MattermostWebhookURL
+		}
+	}
+
 	if err := h.store.UpsertNotificationConfig(r.Context(), &body); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, body)
+	// The echoed config may now carry the preserved stored URL — apply the
+	// same masking policy as GET so non-service callers never see it.
+	out := body
+	if m, ok := auth.MethodFromContext(r.Context()); !ok || m != auth.MethodService {
+		out.MattermostWebhookURL = maskURL(out.MattermostWebhookURL)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -21,9 +21,9 @@
 
 ## 4. Защита webhook URL при сохранении (баг 2.4)
 
-- [ ] 4.1 `services/scheduling/internal/handler/handler.go` (`PutTenantNotificationConfig`): при пустом/отсутствующем `mattermost_webhook_url` сохранять текущее значение из БД; остальные поля обновлять
-- [ ] 4.2 `frontend/src/pages/TenantSettingsPage.tsx`: не включать `mattermost_webhook_url` в тело PUT, если поле не заполнялось
-- [ ] 4.3 Тесты: PUT с пустым URL при сохранённом непустом → URL не изменился; PUT с непустым URL → заменился
+- [x] 4.1 `services/scheduling/internal/handler/handler.go` (`PutTenantNotificationConfig`): при пустом/отсутствующем `mattermost_webhook_url` сохранять текущее значение из БД; остальные поля обновлять
+- [x] 4.2 `frontend/src/pages/TenantSettingsPage.tsx`: не включать `mattermost_webhook_url` в тело PUT, если поле не заполнялось
+- [x] 4.3 Тесты: PUT с пустым URL при сохранённом непустом → URL не изменился; PUT с непустым URL → заменился
 
 ## 5. Мульти-статусный фильтр инцидентов (баг 2.3)
 

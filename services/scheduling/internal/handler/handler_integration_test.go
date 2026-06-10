@@ -482,6 +482,76 @@ func TestTenantNotificationConfig_WebhookMasking(t *testing.T) {
 	}
 }
 
+func TestTenantNotificationConfig_PutEmptyURLKeepsStored(t *testing.T) {
+	const storedURL = "https://mm.example.com/hooks/abc123"
+
+	st := newMemStore()
+	st.notifCfg["tenant-a"] = &store.NotificationConfig{
+		TenantID:             "tenant-a",
+		MattermostWebhookURL: storedURL,
+		MattermostChannel:    "oncall",
+	}
+	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(withAuthMethod(auth.MethodUser, newTenantRouter(h)))
+	defer srv.Close()
+
+	body := `{"mattermost_webhook_url":"","mattermost_channel":"#new","smtp_from":"new@example.com"}`
+	req, _ := http.NewRequest(http.MethodPut,
+		srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	saved := st.notifCfg["tenant-a"]
+	if saved.MattermostWebhookURL != storedURL {
+		t.Errorf("stored webhook URL = %q, want unchanged %q", saved.MattermostWebhookURL, storedURL)
+	}
+	if saved.MattermostChannel != "#new" || saved.SMTPFrom != "new@example.com" {
+		t.Errorf("other fields not updated: %+v", saved)
+	}
+
+	// The echoed config must not leak the preserved full URL to a user request.
+	var out map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if out["mattermost_webhook_url"] == storedURL {
+		t.Errorf("response leaks full webhook URL to user request")
+	}
+}
+
+func TestTenantNotificationConfig_PutNonEmptyURLReplaces(t *testing.T) {
+	st := newMemStore()
+	st.notifCfg["tenant-a"] = &store.NotificationConfig{
+		TenantID:             "tenant-a",
+		MattermostWebhookURL: "https://mm.example.com/hooks/old",
+	}
+	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(withAuthMethod(auth.MethodUser, newTenantRouter(h)))
+	defer srv.Close()
+
+	body := `{"mattermost_webhook_url":"https://mm.example.com/hooks/new"}`
+	req, _ := http.NewRequest(http.MethodPut,
+		srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if got := st.notifCfg["tenant-a"].MattermostWebhookURL; got != "https://mm.example.com/hooks/new" {
+		t.Errorf("stored webhook URL = %q, want replaced", got)
+	}
+}
+
 func TestTenantCRUD(t *testing.T) {
 	srv, st := newTenantSrv(t)
 	defer srv.Close()
