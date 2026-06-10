@@ -101,6 +101,7 @@ func main() {
 			r.Get("/incidents", h.ListIncidents)
 			r.Get("/incidents/{incidentId}", h.GetIncident)
 			r.Patch("/incidents/{incidentId}", h.PatchStatus)
+			r.Get("/incidents/{incidentId}/alerts", h.ListIncidentAlerts)
 			r.Post("/incidents/{incidentId}/alerts", h.AttachAlert)
 			r.Put("/incidents/{incidentId}/labels", h.PutLabels)
 			r.Post("/incidents/{incidentId}/comments", h.AddComment)

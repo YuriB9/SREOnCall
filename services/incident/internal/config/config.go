@@ -3,11 +3,11 @@ package config
 import "os"
 
 type Config struct {
-	HTTPPort       string
-	LogLevel       string
-	DBDSN          string
-	AMQPURL        string
-	AdminKey       string
+	HTTPPort        string
+	LogLevel        string
+	DBDSN           string
+	AMQPURL         string
+	AdminKey        string
 	KeycloakJWKSURL string
 }
 

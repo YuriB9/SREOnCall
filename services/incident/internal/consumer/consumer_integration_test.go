@@ -12,11 +12,11 @@ import (
 	"time"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
+	"github.com/sre-oncall/incident/internal/consumer"
+	incdomain "github.com/sre-oncall/incident/internal/domain"
+	"github.com/sre-oncall/incident/internal/publisher"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/pkg/domain"
-	incdomain "github.com/sre-oncall/incident/internal/domain"
-	"github.com/sre-oncall/incident/internal/consumer"
-	"github.com/sre-oncall/incident/internal/publisher"
 
 	"log/slog"
 	"os"

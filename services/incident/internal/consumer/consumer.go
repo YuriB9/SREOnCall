@@ -10,10 +10,10 @@ import (
 	"strings"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
-	pkgamqp "github.com/sre-oncall/pkg/amqp"
-	"github.com/sre-oncall/pkg/domain"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
 	"github.com/sre-oncall/incident/internal/publisher"
+	pkgamqp "github.com/sre-oncall/pkg/amqp"
+	"github.com/sre-oncall/pkg/domain"
 )
 
 // Store is the subset of store.Store used by the consumer.

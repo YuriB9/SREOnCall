@@ -82,7 +82,7 @@ Severity и заголовок инцидента наследуются от **
 
 ### Requirement: Детали инцидента и его алерты
 
-Сервис incident ДОЛЖЕН (SHALL) предоставлять GET `/api/incidents/v1/{tenant}/incidents/{incidentId}` (полные данные инцидента, включая лейблы) и GET `/api/incidents/v1/{tenant}/incidents/{incidentId}/alerts` (все привязанные алерты с их статусом firing/resolved, источником и лейблами).
+Сервис incident ДОЛЖЕН (SHALL) предоставлять GET `/api/incidents/v1/{tenant}/incidents/{incidentId}` (полные данные инцидента, включая лейблы) и GET `/api/incidents/v1/{tenant}/incidents/{incidentId}/alerts` (все привязанные алерты с их статусом firing/resolved, источником, fingerprint и временем привязки).
 
 #### Scenario: Получение деталей инцидента
 
@@ -92,7 +92,7 @@ Severity и заголовок инцидента наследуются от **
 #### Scenario: Получение алертов инцидента
 
 - **WHEN** выполняется GET на `/api/incidents/v1/{tenant}/incidents/{incidentId}/alerts`
-- **THEN** возвращаются все привязанные алерты с fingerprint, источником, статусом и лейблами
+- **THEN** возвращаются все привязанные алерты с fingerprint, источником, статусом и временем привязки (`attached_at`)
 
 #### Scenario: Инцидент другого тенанта недоступен
 

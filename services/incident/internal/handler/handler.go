@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/sre-oncall/pkg/auth"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
 	"github.com/sre-oncall/incident/internal/publisher"
 	"github.com/sre-oncall/incident/internal/statemachine"
 	"github.com/sre-oncall/incident/internal/store"
+	"github.com/sre-oncall/pkg/auth"
 )
 
 // Store is the full store interface used by REST handlers.
@@ -24,6 +24,7 @@ type Store interface {
 	ListIncidents(ctx context.Context, tenantID string, f store.ListFilter) ([]*incdomain.Incident, string, error)
 	UpdateStatus(ctx context.Context, tenantID, id string, status incdomain.Status, authorID string) (*incdomain.Incident, error)
 	AttachAlert(ctx context.Context, ia *incdomain.IncidentAlert) error
+	ListIncidentAlerts(ctx context.Context, tenantID, incidentID string) ([]*incdomain.IncidentAlert, error)
 	MergeLabels(ctx context.Context, incidentID string, labels map[string]string) error
 	GetLabels(ctx context.Context, incidentID string) (map[string]string, error)
 	AppendHistory(ctx context.Context, e *incdomain.HistoryEntry) error
@@ -232,6 +233,29 @@ func (h *Handler) AttachAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListIncidentAlerts returns all alerts attached to an incident (the dashboard
+// "Алерты" tab contract: fingerprint, source, status, attached_at).
+func (h *Handler) ListIncidentAlerts(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenant_id")
+	id := incidentID(r)
+
+	if _, err := h.store.GetIncident(r.Context(), tenantID, id); errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	alerts, err := h.store.ListIncidentAlerts(r.Context(), tenantID, id)
+	if err != nil {
+		h.logger.Error("list incident alerts", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if alerts == nil {
+		alerts = []*incdomain.IncidentAlert{}
+	}
+	writeJSON(w, http.StatusOK, alerts)
 }
 
 // ── Labels ───────────────────────────────────────────────────────────────────

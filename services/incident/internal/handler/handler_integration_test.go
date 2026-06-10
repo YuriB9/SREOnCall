@@ -26,6 +26,7 @@ import (
 
 type memHandler struct {
 	incidents map[string]*incdomain.Incident
+	alerts    []*incdomain.IncidentAlert
 	labels    map[string]map[string]string
 	comments  map[string][]*incdomain.Comment
 	history   map[string][]*incdomain.HistoryEntry
@@ -90,6 +91,16 @@ func (m *memHandler) UpdateStatus(_ context.Context, tenantID, id string, status
 }
 
 func (m *memHandler) AttachAlert(_ context.Context, _ *incdomain.IncidentAlert) error { return nil }
+
+func (m *memHandler) ListIncidentAlerts(_ context.Context, tenantID, incidentID string) ([]*incdomain.IncidentAlert, error) {
+	var out []*incdomain.IncidentAlert
+	for _, ia := range m.alerts {
+		if ia.TenantID == tenantID && ia.IncidentID == incidentID {
+			out = append(out, ia)
+		}
+	}
+	return out, nil
+}
 
 func (m *memHandler) MergeLabels(_ context.Context, id string, labels map[string]string) error {
 	if m.labels[id] == nil {
@@ -159,6 +170,7 @@ func newTestRouter(h *handler.Handler) http.Handler {
 		r.Get("/incidents", h.ListIncidents)
 		r.Get("/incidents/{incidentId}", h.GetIncident)
 		r.Patch("/incidents/{incidentId}", h.PatchStatus)
+		r.Get("/incidents/{incidentId}/alerts", h.ListIncidentAlerts)
 		r.Post("/incidents/{incidentId}/alerts", h.AttachAlert)
 		r.Put("/incidents/{incidentId}/labels", h.PutLabels)
 		r.Post("/incidents/{incidentId}/comments", h.AddComment)
@@ -269,6 +281,42 @@ func TestHandler_ListIncidents_StatusFilter(t *testing.T) {
 			t.Errorf("expected 400, got %d", code)
 		}
 	})
+}
+
+func TestHandler_ListIncidentAlerts(t *testing.T) {
+	st := newMemHandler()
+	st.alerts = []*incdomain.IncidentAlert{
+		{ID: "a1", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-1", Source: "alertmanager", Status: incdomain.AlertFiring},
+		{ID: "a2", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-2", Source: "grafana", Status: incdomain.AlertResolved},
+		{ID: "a3", IncidentID: "other", TenantID: "tenant-a", Fingerprint: "fp-3", Source: "grafana", Status: incdomain.AlertFiring},
+	}
+	h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(newTestRouter(h))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/incidents/v1/tenant-a/incidents/inc1/alerts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var alerts []*incdomain.IncidentAlert
+	_ = json.NewDecoder(resp.Body).Decode(&alerts)
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 alerts of inc1, got %d", len(alerts))
+	}
+	if alerts[0].Fingerprint != "fp-1" || alerts[1].Source != "grafana" {
+		t.Errorf("unexpected alerts: %+v %+v", alerts[0], alerts[1])
+	}
+
+	// Unknown incident → 404
+	resp2, _ := http.Get(srv.URL + "/api/incidents/v1/tenant-a/incidents/nonexistent/alerts")
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown incident, got %d", resp2.StatusCode)
+	}
 }
 
 func TestHandler_PatchStatus_ValidTransition(t *testing.T) {

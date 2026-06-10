@@ -275,6 +275,31 @@ func (s *Store) AttachAlert(ctx context.Context, ia *domain.IncidentAlert) error
 	).Scan(&ia.ID, &ia.AttachedAt)
 }
 
+// ListIncidentAlerts returns all alerts attached to an incident, oldest first.
+func (s *Store) ListIncidentAlerts(ctx context.Context, tenantID, incidentID string) ([]*domain.IncidentAlert, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT id, incident_id, tenant_id, fingerprint, source, group_key, status, attached_at
+		 FROM incident.incident_alerts
+		 WHERE incident_id = $1 AND tenant_id = $2
+		 ORDER BY attached_at ASC`,
+		incidentID, tenantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list incident alerts: %w", err)
+	}
+	defer rows.Close()
+	var result []*domain.IncidentAlert
+	for rows.Next() {
+		ia := &domain.IncidentAlert{}
+		if err := rows.Scan(&ia.ID, &ia.IncidentID, &ia.TenantID, &ia.Fingerprint,
+			&ia.Source, &ia.GroupKey, &ia.Status, &ia.AttachedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, ia)
+	}
+	return result, rows.Err()
+}
+
 // FindIncidentByFingerprint returns the incident_id for the first open incident_alert with this fingerprint.
 func (s *Store) FindIncidentByFingerprint(ctx context.Context, tenantID, fingerprint string) (string, error) {
 	var incidentID string
