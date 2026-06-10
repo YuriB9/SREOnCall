@@ -27,17 +27,17 @@
 
 ## 5. Мульти-статусный фильтр инцидентов (баг 2.3)
 
-- [ ] 5.1 `services/incident/internal/handler/handler.go`: разобрать `status` по запятой, валидировать каждое значение по `open|acknowledged|resolved`, при недопустимом — HTTP 400
-- [ ] 5.2 `services/incident/internal/store/store.go` (`ListIncidents`): фильтр `i.status = ANY($n)` по срезу статусов
-- [ ] 5.3 Тесты store/handler: один статус; два статуса; недопустимое значение → 400
+- [x] 5.1 `services/incident/internal/handler/handler.go`: разобрать `status` по запятой, валидировать каждое значение по `open|acknowledged|resolved`, при недопустимом — HTTP 400
+- [x] 5.2 `services/incident/internal/store/store.go` (`ListIncidents`): фильтр `i.status = ANY($n)` по срезу статусов
+- [x] 5.3 Тесты store/handler: один статус; два статуса; недопустимое значение → 400
 
 ## 6. Деплой
 
-- [ ] 6.1 `deploy/k8s`: завести Secret с `ADMIN_KEY`/`SCHEDULING_ADMIN_KEY`, подключить к scheduling (проверка), escalation и notification (использование); убрать ключ из configmap, если он там появлялся
-- [ ] 6.2 `docker-compose.yaml`: задать ключ сервисам для локального паритета с k8s (опционально, поведение без JWKS не меняется)
+- [x] 6.1 `deploy/k8s`: завести Secret с `ADMIN_KEY`/`SCHEDULING_ADMIN_KEY`, подключить к scheduling (проверка), escalation и notification (использование); убрать ключ из configmap, если он там появлялся
+- [x] 6.2 `docker-compose.yaml`: задать ключ сервисам для локального паритета с k8s (опционально, поведение без JWKS не меняется) — сервисы запускаются не через compose, а через `scripts/dev-up.sh`; ключ добавлен туда
 
 ## 7. Проверка
 
-- [ ] 7.1 Прогнать `go build ./...` и `go test ./...` по затронутым сервисам; `tsc -b` для фронтенда
-- [ ] 7.2 Сквозная проверка в k8s-конфигурации (JWKS включён): инцидент → эскалация tier 1 → событие с непустым `oncall_user_id` → email и Mattermost доставлены на полный URL
-- [ ] 7.3 Ручная проверка UI: фильтр «Открытые + Подтверждённые» возвращает данные; сохранение настроек без ввода URL не ломает Mattermost
+- [x] 7.1 Прогнать `go build ./...` и `go test ./...` по затронутым сервисам; `tsc -b` для фронтенда
+- [x] 7.2 Сквозная проверка в k8s-конфигурации (JWKS включён): инцидент → эскалация tier 1 → событие с непустым `oncall_user_id` → email и Mattermost доставлены на полный URL
+- [x] 7.3 Ручная проверка UI: фильтр «Открытые + Подтверждённые» возвращает данные; сохранение настроек без ввода URL не ломает Mattermost

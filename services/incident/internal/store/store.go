@@ -53,7 +53,7 @@ func (s *Store) GetIncident(ctx context.Context, tenantID, id string) (*domain.I
 }
 
 type ListFilter struct {
-	Status   string
+	Statuses []string
 	Severity string
 	Label    map[string]string
 	FromTime *time.Time
@@ -71,9 +71,9 @@ func (s *Store) ListIncidents(ctx context.Context, tenantID string, f ListFilter
 	args := []any{tenantID}
 	idx := 2
 
-	if f.Status != "" {
-		conds = append(conds, fmt.Sprintf("i.status = $%d", idx))
-		args = append(args, f.Status)
+	if len(f.Statuses) > 0 {
+		conds = append(conds, fmt.Sprintf("i.status = ANY($%d)", idx))
+		args = append(args, f.Statuses)
 		idx++
 	}
 	if f.Severity != "" {

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -76,9 +78,22 @@ func (h *Handler) ListIncidents(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenant_id")
 
 	f := store.ListFilter{
-		Status:   r.URL.Query().Get("status"),
 		Severity: r.URL.Query().Get("severity"),
 		Cursor:   r.URL.Query().Get("cursor"),
+	}
+	// status accepts a comma-separated list (?status=open,acknowledged);
+	// each value must be a valid incident status.
+	if raw := r.URL.Query().Get("status"); raw != "" {
+		for _, s := range strings.Split(raw, ",") {
+			s = strings.TrimSpace(s)
+			switch incdomain.Status(s) {
+			case incdomain.StatusOpen, incdomain.StatusAcknowledged, incdomain.StatusResolved:
+				f.Statuses = append(f.Statuses, s)
+			default:
+				http.Error(w, fmt.Sprintf("invalid status value: %q", s), http.StatusBadRequest)
+				return
+			}
+		}
 	}
 	if from := r.URL.Query().Get("from_time"); from != "" {
 		t, err := time.Parse(time.RFC3339, from)

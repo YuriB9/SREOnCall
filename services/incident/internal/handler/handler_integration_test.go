@@ -58,12 +58,25 @@ func (m *memHandler) GetIncident(_ context.Context, tenantID, id string) (*incdo
 	return nil, store.ErrNotFound
 }
 
-func (m *memHandler) ListIncidents(_ context.Context, tenantID string, _ store.ListFilter) ([]*incdomain.Incident, string, error) {
+func (m *memHandler) ListIncidents(_ context.Context, tenantID string, f store.ListFilter) ([]*incdomain.Incident, string, error) {
 	var out []*incdomain.Incident
 	for _, inc := range m.incidents {
-		if inc.TenantID == tenantID {
-			out = append(out, inc)
+		if inc.TenantID != tenantID {
+			continue
 		}
+		if len(f.Statuses) > 0 {
+			match := false
+			for _, s := range f.Statuses {
+				if string(inc.Status) == s {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
+		}
+		out = append(out, inc)
 	}
 	return out, "", nil
 }
@@ -192,6 +205,71 @@ func TestHandler_GetIncident_NotFound(t *testing.T) {
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
+}
+
+func TestHandler_ListIncidents_StatusFilter(t *testing.T) {
+	newSrv := func(t *testing.T) *httptest.Server {
+		t.Helper()
+		st := newMemHandler()
+		st.incidents["inc2"] = &incdomain.Incident{
+			ID: "inc2", TenantID: "tenant-a", Title: "Acked", Severity: "warning",
+			Status: incdomain.StatusAcknowledged, Labels: map[string]string{},
+		}
+		st.incidents["inc3"] = &incdomain.Incident{
+			ID: "inc3", TenantID: "tenant-a", Title: "Done", Severity: "warning",
+			Status: incdomain.StatusResolved, Labels: map[string]string{},
+		}
+		h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+		srv := httptest.NewServer(newTestRouter(h))
+		t.Cleanup(srv.Close)
+		return srv
+	}
+
+	list := func(t *testing.T, srv *httptest.Server, query string) (int, []*incdomain.Incident) {
+		t.Helper()
+		resp, err := http.Get(srv.URL + "/api/incidents/v1/tenant-a/incidents" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out struct {
+			Incidents []*incdomain.Incident `json:"incidents"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out.Incidents
+	}
+
+	t.Run("single status", func(t *testing.T) {
+		code, incs := list(t, newSrv(t), "?status=open")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", code)
+		}
+		if len(incs) != 1 || incs[0].Status != incdomain.StatusOpen {
+			t.Errorf("expected 1 open incident, got %+v", incs)
+		}
+	})
+
+	t.Run("two statuses", func(t *testing.T) {
+		code, incs := list(t, newSrv(t), "?status=open,acknowledged")
+		if code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", code)
+		}
+		if len(incs) != 2 {
+			t.Fatalf("expected 2 incidents, got %d", len(incs))
+		}
+		for _, inc := range incs {
+			if inc.Status == incdomain.StatusResolved {
+				t.Errorf("resolved incident returned for status=open,acknowledged")
+			}
+		}
+	})
+
+	t.Run("invalid status value", func(t *testing.T) {
+		code, _ := list(t, newSrv(t), "?status=open,bogus")
+		if code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", code)
+		}
+	})
 }
 
 func TestHandler_PatchStatus_ValidTransition(t *testing.T) {

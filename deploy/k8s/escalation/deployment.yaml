@@ -25,6 +25,12 @@ spec:
                 name: escalation-config
             - secretRef:
                 name: escalation-secret
+          env:
+            - name: SCHEDULING_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: service-auth
+                  key: ADMIN_KEY
           livenessProbe:
             httpGet:
               path: /healthz
