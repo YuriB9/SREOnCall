@@ -7,11 +7,11 @@
 
 ## 2. Сервисный ключ в schedclient (баг 2.1)
 
-- [ ] 2.1 `services/escalation/internal/schedclient/client.go`: принять `adminKey` в конструкторе, отправлять `X-Admin-Key` в каждом запросе
-- [ ] 2.2 `services/notification/internal/schedclient/client.go`: то же самое
-- [ ] 2.3 `services/escalation/internal/config`, `services/notification/internal/config`: параметр `SCHEDULING_ADMIN_KEY`; прокинуть в конструкторы клиентов в `cmd/server/main.go`
-- [ ] 2.4 `services/escalation/internal/escalator/escalator.go` (`triggerTier`): поднять уровень лога сбоя резолва дежурного до `error` (публикация с пустым `oncall_user_id` не должна быть тихой)
-- [ ] 2.5 Тесты клиентов: заголовок присутствует; 401 от scheduling возвращается ошибкой, а не пустым результатом
+- [x] 2.1 `services/escalation/internal/schedclient/client.go`: принять `adminKey` в конструкторе, отправлять `X-Admin-Key` в каждом запросе
+- [x] 2.2 `services/notification/internal/schedclient/client.go`: то же самое
+- [x] 2.3 `services/escalation/internal/config`, `services/notification/internal/config`: параметр `SCHEDULING_ADMIN_KEY`; прокинуть в конструкторы клиентов в `cmd/server/main.go`
+- [x] 2.4 `services/escalation/internal/escalator/escalator.go` (`triggerTier`): поднять уровень лога сбоя резолва дежурного до `error` (публикация с пустым `oncall_user_id` не должна быть тихой)
+- [x] 2.5 Тесты клиентов: заголовок присутствует; 401 от scheduling возвращается ошибкой, а не пустым результатом
 
 ## 3. Условное маскирование конфига уведомлений (баг 2.2)
 

@@ -48,7 +48,7 @@ func main() {
 
 	// ── Dependencies ──────────────────────────────────────────────────────────
 	st := store.New(pool)
-	schedClient := schedclient.New(cfg.SchedulingURL)
+	schedClient := schedclient.New(cfg.SchedulingURL, cfg.SchedulingAdminKey)
 
 	// RabbitMQ is optional — skipped if RABBITMQ_URL is unset.
 	var pub escalator.Publisher = publisher.NewNoop()

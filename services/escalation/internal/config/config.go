@@ -10,6 +10,9 @@ type Config struct {
 	AdminKey        string
 	KeycloakJWKSURL string
 	SchedulingURL   string
+	// SchedulingAdminKey is sent as X-Admin-Key to the scheduling service
+	// for service-to-service authentication.
+	SchedulingAdminKey string
 }
 
 func Load() Config {
@@ -21,6 +24,8 @@ func Load() Config {
 		AdminKey:        os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL: os.Getenv("KEYCLOAK_JWKS_URL"),
 		SchedulingURL:   getenv("SCHEDULING_URL", "http://localhost:8082"),
+
+		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
 	}
 }
 

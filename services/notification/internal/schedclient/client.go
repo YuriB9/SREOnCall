@@ -16,12 +16,16 @@ type TenantNotificationConfig struct {
 
 type Client struct {
 	baseURL    string
+	adminKey   string
 	httpClient *http.Client
 }
 
-func New(baseURL string) *Client {
+// New creates a scheduling client. adminKey, when non-empty, is sent as
+// X-Admin-Key on every request for service-to-service authentication.
+func New(baseURL, adminKey string) *Client {
 	return &Client{
 		baseURL:    baseURL,
+		adminKey:   adminKey,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -33,6 +37,9 @@ func (c *Client) GetTenantNotificationConfig(ctx context.Context, tenantSlug str
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+	if c.adminKey != "" {
+		req.Header.Set("X-Admin-Key", c.adminKey)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

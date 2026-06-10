@@ -15,13 +15,16 @@ type Config struct {
 	AdminKey        string
 	KeycloakJWKSURL string
 	SchedulingURL   string
-	SMTPHost        string
-	SMTPPort        string
-	SMTPUsername    string
-	SMTPPassword    string
-	SMTPFrom        string
-	RateLimitMax    int
-	RateLimitWindow int
+	// SchedulingAdminKey is sent as X-Admin-Key to the scheduling service
+	// for service-to-service authentication.
+	SchedulingAdminKey string
+	SMTPHost           string
+	SMTPPort           string
+	SMTPUsername       string
+	SMTPPassword       string
+	SMTPFrom           string
+	RateLimitMax       int
+	RateLimitWindow    int
 }
 
 func getenv(key, def string) string {
@@ -54,6 +57,9 @@ func Load() Config {
 		AdminKey:        os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL: os.Getenv("KEYCLOAK_JWKS_URL"),
 		SchedulingURL:   getenv("SCHEDULING_URL", "http://localhost:8082"),
+
+		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
+
 		SMTPHost:        getenv("SMTP_HOST", "localhost"),
 		SMTPPort:        getenv("SMTP_PORT", "25"),
 		SMTPUsername:    os.Getenv("SMTP_USERNAME"),

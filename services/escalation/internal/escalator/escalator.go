@@ -38,10 +38,10 @@ type SchedulingClient interface {
 }
 
 type Escalator struct {
-	store   Store
-	sched   SchedulingClient
-	pub     Publisher
-	logger  *slog.Logger
+	store  Store
+	sched  SchedulingClient
+	pub    Publisher
+	logger *slog.Logger
 }
 
 func New(st Store, sched SchedulingClient, pub Publisher, logger *slog.Logger) *Escalator {
@@ -193,7 +193,10 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 	if tier.NotifyScheduleID != "" {
 		result, err := e.sched.GetOnCall(ctx, st.TenantSlug, tier.NotifyScheduleID)
 		if err != nil {
-			e.logger.Warn("get on-call failed", "schedule_id", tier.NotifyScheduleID, "err", err)
+			// The event is still published with an empty oncall_user_id; this
+			// must not pass silently — the on-call user gets no notification.
+			e.logger.Error("get on-call failed, escalating without on-call user",
+				"schedule_id", tier.NotifyScheduleID, "incident_id", st.IncidentID, "err", err)
 		} else {
 			userID = result.UserID
 			username = result.Username
