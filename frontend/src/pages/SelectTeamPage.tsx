@@ -1,13 +1,28 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { usePermissions } from '@/auth/usePermissions'
+import { usePermissions, useRawGroups } from '@/auth/usePermissions'
 import { Button } from '@/components/ui/button'
 
 export function SelectTeamPage() {
   const permissions = usePermissions()
+  const rawGroups = useRawGroups()
   const navigate = useNavigate()
   const tenants = Object.keys(permissions)
+
+  // Непустой groups при пустой карте ролей — признак неверной настройки
+  // Keycloak-маппера (например, claim не в том формате), а не отсутствия членства.
+  const mapperMisconfigured = tenants.length === 0 && rawGroups.length > 0
+
+  useEffect(() => {
+    if (mapperMisconfigured) {
+      console.error(
+        'usePermissions: claim "groups" непуст, но карта ролей пуста — вероятно, ' +
+          'Keycloak-маппер групп настроен неверно. groups:',
+        rawGroups,
+      )
+    }
+  }, [mapperMisconfigured, rawGroups])
 
   useEffect(() => {
     if (tenants.length === 1) {
@@ -19,9 +34,16 @@ export function SelectTeamPage() {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-3">
         <p className="text-2xl font-bold">Нет доступа к командам</p>
-        <p className="text-muted-foreground">
-          У вас нет членства ни в одной команде. Обратитесь к администратору.
-        </p>
+        {mapperMisconfigured ? (
+          <p className="max-w-md text-center text-muted-foreground">
+            Токен содержит группы, но ни одна не распознана как команда. Вероятно, неверно
+            настроен маппер групп в Keycloak — обратитесь к администратору платформы.
+          </p>
+        ) : (
+          <p className="text-muted-foreground">
+            У вас нет членства ни в одной команде. Обратитесь к администратору.
+          </p>
+        )}
       </div>
     )
   }
