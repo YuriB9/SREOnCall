@@ -186,22 +186,26 @@ func (s *Store) DeleteTenantConfig(ctx context.Context, tenantID string) error {
 func (s *Store) CreateEscalationState(ctx context.Context, st *domain.EscalationState) error {
 	return s.db.QueryRow(ctx,
 		`INSERT INTO escalation.incident_escalation_states
-		    (incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at)
-		 VALUES ($1,$2,$3,$4,$5,'active',$6)
+		    (incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at,
+		     incident_title, incident_severity, incident_status)
+		 VALUES ($1,$2,$3,$4,$5,'active',$6,$7,$8,$9)
 		 RETURNING id, created_at, updated_at`,
 		st.IncidentID, st.TenantID, st.TenantSlug, st.PolicyID, st.CurrentTier, st.EscalateAt,
+		st.IncidentTitle, st.IncidentSeverity, st.IncidentStatus,
 	).Scan(&st.ID, &st.CreatedAt, &st.UpdatedAt)
 }
 
 func (s *Store) GetEscalationStateByIncident(ctx context.Context, tenantID, incidentID string) (*domain.EscalationState, error) {
 	st := &domain.EscalationState{}
 	err := s.db.QueryRow(ctx,
-		`SELECT id, incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at, created_at, updated_at
+		`SELECT id, incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at, created_at, updated_at,
+		        COALESCE(incident_title,''), COALESCE(incident_severity,''), COALESCE(incident_status,'')
 		 FROM escalation.incident_escalation_states
 		 WHERE incident_id=$1 AND tenant_id=$2`,
 		incidentID, tenantID,
 	).Scan(&st.ID, &st.IncidentID, &st.TenantID, &st.TenantSlug, &st.PolicyID,
-		&st.CurrentTier, &st.Status, &st.EscalateAt, &st.CreatedAt, &st.UpdatedAt)
+		&st.CurrentTier, &st.Status, &st.EscalateAt, &st.CreatedAt, &st.UpdatedAt,
+		&st.IncidentTitle, &st.IncidentSeverity, &st.IncidentStatus)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -227,7 +231,8 @@ func (s *Store) UpdateEscalationState(ctx context.Context, st *domain.Escalation
 // ListExpiredStates returns active states where escalate_at <= now(), locked for update.
 func (s *Store) ListExpiredStates(ctx context.Context, limit int) ([]*domain.EscalationState, error) {
 	rows, err := s.db.Query(ctx,
-		`SELECT id, incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at, created_at, updated_at
+		`SELECT id, incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at, created_at, updated_at,
+		        COALESCE(incident_title,''), COALESCE(incident_severity,''), COALESCE(incident_status,'')
 		 FROM escalation.incident_escalation_states
 		 WHERE status='active' AND escalate_at <= now()
 		 ORDER BY escalate_at ASC
@@ -243,7 +248,8 @@ func (s *Store) ListExpiredStates(ctx context.Context, limit int) ([]*domain.Esc
 	for rows.Next() {
 		st := &domain.EscalationState{}
 		if err := rows.Scan(&st.ID, &st.IncidentID, &st.TenantID, &st.TenantSlug, &st.PolicyID,
-			&st.CurrentTier, &st.Status, &st.EscalateAt, &st.CreatedAt, &st.UpdatedAt); err != nil {
+			&st.CurrentTier, &st.Status, &st.EscalateAt, &st.CreatedAt, &st.UpdatedAt,
+			&st.IncidentTitle, &st.IncidentSeverity, &st.IncidentStatus); err != nil {
 			return nil, err
 		}
 		result = append(result, st)

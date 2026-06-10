@@ -648,6 +648,19 @@ func TestTenantIsolation_Schedules(t *testing.T) {
 	}
 }
 
+func TestWebhookToken_ZabbixSourceRejected(t *testing.T) {
+	srv, st := newTenantSrv(t)
+	defer srv.Close()
+	st.tenants["team-c"] = &domain.Tenant{ID: "t-c", Slug: "team-c", Name: "C"}
+
+	body := bytes.NewBufferString(`{"source":"zabbix"}`)
+	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("create zabbix token: expected 422, got %d", resp.StatusCode)
+	}
+}
+
 func TestWebhookToken_CreateAndList(t *testing.T) {
 	srv, st := newTenantSrv(t)
 	defer srv.Close()

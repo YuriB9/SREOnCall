@@ -7,7 +7,6 @@ type AlertSource string
 const (
 	SourcePrometheus AlertSource = "prometheus"
 	SourceGrafana    AlertSource = "grafana"
-	SourceZabbix     AlertSource = "zabbix"
 )
 
 type AlertSeverity string

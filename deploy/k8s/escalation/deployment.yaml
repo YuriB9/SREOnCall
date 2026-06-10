@@ -31,6 +31,11 @@ spec:
                 secretKeyRef:
                   name: service-auth
                   key: ADMIN_KEY
+            - name: INCIDENT_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: service-auth
+                  key: ADMIN_KEY
           livenessProbe:
             httpGet:
               path: /healthz

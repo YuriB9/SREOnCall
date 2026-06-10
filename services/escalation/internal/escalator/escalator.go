@@ -48,9 +48,18 @@ func New(st Store, sched SchedulingClient, pub Publisher, logger *slog.Logger) *
 	return &Escalator{store: st, sched: sched, pub: pub, logger: logger}
 }
 
+// IncidentInfo is incident data captured at policy-assignment time and carried
+// into escalation.triggered events. Empty fields are allowed (source event
+// predates enrichment or the incident service was unreachable).
+type IncidentInfo struct {
+	Title    string
+	Severity string
+	Status   string
+}
+
 // AssignPolicy attaches a policy to an incident, starts escalation from tier 1,
 // and immediately triggers tier 1 notification.
-func (e *Escalator) AssignPolicy(ctx context.Context, tenantID, tenantSlug, incidentID, policyID string) error {
+func (e *Escalator) AssignPolicy(ctx context.Context, tenantID, tenantSlug, incidentID, policyID string, inc IncidentInfo) error {
 	policy, err := e.store.GetPolicy(ctx, tenantID, policyID)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.ErrNotFound
@@ -65,12 +74,15 @@ func (e *Escalator) AssignPolicy(ctx context.Context, tenantID, tenantSlug, inci
 	tier1 := policy.Tiers[0]
 
 	st := &domain.EscalationState{
-		IncidentID:  incidentID,
-		TenantID:    tenantID,
-		TenantSlug:  tenantSlug,
-		PolicyID:    policyID,
-		CurrentTier: tier1.TierNumber,
-		EscalateAt:  time.Now().Add(time.Duration(tier1.TimeoutSeconds) * time.Second),
+		IncidentID:       incidentID,
+		TenantID:         tenantID,
+		TenantSlug:       tenantSlug,
+		PolicyID:         policyID,
+		CurrentTier:      tier1.TierNumber,
+		EscalateAt:       time.Now().Add(time.Duration(tier1.TimeoutSeconds) * time.Second),
+		IncidentTitle:    inc.Title,
+		IncidentSeverity: inc.Severity,
+		IncidentStatus:   inc.Status,
 	}
 	if err := e.store.CreateEscalationState(ctx, st); err != nil {
 		return fmt.Errorf("assign policy: create state: %w", err)
@@ -171,7 +183,7 @@ func (e *Escalator) ManualEscalate(ctx context.Context, tenantID, incidentID str
 }
 
 // AutoAssign looks up the tenant's default policy and assigns it if configured.
-func (e *Escalator) AutoAssign(ctx context.Context, tenantID, tenantSlug, incidentID string) error {
+func (e *Escalator) AutoAssign(ctx context.Context, tenantID, tenantSlug, incidentID string, inc IncidentInfo) error {
 	cfg, err := e.store.GetTenantConfig(ctx, tenantID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil // no default policy configured
@@ -182,7 +194,7 @@ func (e *Escalator) AutoAssign(ctx context.Context, tenantID, tenantSlug, incide
 	if cfg.DefaultPolicyID == nil {
 		return nil
 	}
-	if err := e.AssignPolicy(ctx, tenantID, tenantSlug, incidentID, *cfg.DefaultPolicyID); err != nil {
+	if err := e.AssignPolicy(ctx, tenantID, tenantSlug, incidentID, *cfg.DefaultPolicyID, inc); err != nil {
 		return fmt.Errorf("auto assign: assign policy: %w", err)
 	}
 	return nil
@@ -214,12 +226,15 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 	})
 
 	if err := e.pub.PublishTriggered(ctx, publisher.TriggeredEvent{
-		IncidentID:     st.IncidentID,
-		TenantID:       st.TenantID,
-		TenantSlug:     st.TenantSlug,
-		Tier:           tier.TierNumber,
-		OncallUserID:   userID,
-		OncallUsername: username,
+		IncidentID:       st.IncidentID,
+		TenantID:         st.TenantID,
+		TenantSlug:       st.TenantSlug,
+		Tier:             tier.TierNumber,
+		OncallUserID:     userID,
+		OncallUsername:   username,
+		IncidentTitle:    st.IncidentTitle,
+		IncidentSeverity: st.IncidentSeverity,
+		IncidentStatus:   st.IncidentStatus,
 	}); err != nil {
 		return fmt.Errorf("trigger tier %d: publish: %w", tier.TierNumber, err)
 	}

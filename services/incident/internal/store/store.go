@@ -492,7 +492,7 @@ func (s *Store) ListGroupingRules(ctx context.Context, tenantID string) ([]*doma
 		return nil, err
 	}
 
-	sources := []string{"alertmanager", "grafana", "zabbix"}
+	sources := []string{"alertmanager", "grafana"}
 	out := make([]*domain.GroupingRule, 0, len(sources))
 	for _, src := range sources {
 		if r, ok := explicit[src]; ok {

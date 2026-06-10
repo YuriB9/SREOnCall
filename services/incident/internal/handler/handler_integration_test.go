@@ -141,7 +141,6 @@ func (m *memHandler) ListGroupingRules(_ context.Context, tenantID string) ([]*i
 	return []*incdomain.GroupingRule{
 		{TenantID: tenantID, Source: "alertmanager", GroupingLabels: []string{"alertname", "job"}, IsDefault: true},
 		{TenantID: tenantID, Source: "grafana", GroupingLabels: []string{"alertname"}, IsDefault: true},
-		{TenantID: tenantID, Source: "zabbix", GroupingLabels: []string{"host", "trigger_name"}, IsDefault: true},
 	}, nil
 }
 
@@ -371,7 +370,7 @@ func TestHandler_ListGroupingRules(t *testing.T) {
 	}
 	var rules []*incdomain.GroupingRule
 	_ = json.NewDecoder(resp.Body).Decode(&rules)
-	if len(rules) != 3 {
-		t.Errorf("expected 3 grouping rules, got %d", len(rules))
+	if len(rules) != 2 {
+		t.Errorf("expected 2 grouping rules, got %d", len(rules))
 	}
 }

@@ -594,9 +594,9 @@ func (h *Handler) CreateWebhookToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	validSources := map[string]bool{"alertmanager": true, "grafana": true, "zabbix": true}
+	validSources := map[string]bool{"alertmanager": true, "grafana": true}
 	if !validSources[body.Source] {
-		writeError(w, http.StatusUnprocessableEntity, "source must be alertmanager, grafana, or zabbix")
+		writeError(w, http.StatusUnprocessableEntity, "source must be alertmanager or grafana")
 		return
 	}
 

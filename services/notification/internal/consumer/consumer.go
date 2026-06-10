@@ -7,8 +7,8 @@ import (
 	"log/slog"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
-	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/notification/internal/notifier"
+	pkgamqp "github.com/sre-oncall/pkg/amqp"
 )
 
 type Consumer struct {

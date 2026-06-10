@@ -111,6 +111,8 @@ PIDS+=($!)
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
   SCHEDULING_URL="http://localhost:8082" \
   SCHEDULING_ADMIN_KEY="$ADMIN_API_KEY" \
+  INCIDENT_URL="http://localhost:8081" \
+  INCIDENT_ADMIN_KEY="$ADMIN_API_KEY" \
   /tmp/oncall-escalation) &
 PIDS+=($!)
 
@@ -120,6 +122,7 @@ PIDS+=($!)
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
   SCHEDULING_URL="http://localhost:8082" \
   SCHEDULING_ADMIN_KEY="$ADMIN_API_KEY" \
+  FRONTEND_BASE_URL="http://localhost:5173" \
   /tmp/oncall-notification) &
 PIDS+=($!)
 

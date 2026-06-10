@@ -8,13 +8,18 @@ import (
 )
 
 // TriggeredEvent is published on escalation.triggered routing key.
+// Incident fields may be empty (state created before enrichment or the
+// incident service was unreachable on manual attach); consumers fall back.
 type TriggeredEvent struct {
-	IncidentID     string `json:"incident_id"`
-	TenantID       string `json:"tenant_id"`
-	TenantSlug     string `json:"tenant_slug"`
-	Tier           int    `json:"tier"`
-	OncallUserID   string `json:"oncall_user_id"`
-	OncallUsername string `json:"oncall_username"`
+	IncidentID       string `json:"incident_id"`
+	TenantID         string `json:"tenant_id"`
+	TenantSlug       string `json:"tenant_slug"`
+	Tier             int    `json:"tier"`
+	OncallUserID     string `json:"oncall_user_id"`
+	OncallUsername   string `json:"oncall_username"`
+	IncidentTitle    string `json:"incident_title"`
+	IncidentSeverity string `json:"incident_severity"`
+	IncidentStatus   string `json:"incident_status"`
 }
 
 // ExhaustedEvent is published on escalation.exhausted routing key.
@@ -51,6 +56,6 @@ func (p *Publisher) PublishExhausted(ctx context.Context, ev ExhaustedEvent) err
 // Noop discards all events — used when AMQP is not configured.
 type Noop struct{}
 
-func NewNoop() *Noop                                               { return &Noop{} }
+func NewNoop() *Noop                                                     { return &Noop{} }
 func (*Noop) PublishTriggered(_ context.Context, _ TriggeredEvent) error { return nil }
 func (*Noop) PublishExhausted(_ context.Context, _ ExhaustedEvent) error { return nil }

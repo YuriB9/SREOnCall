@@ -13,6 +13,10 @@ type Config struct {
 	// SchedulingAdminKey is sent as X-Admin-Key to the scheduling service
 	// for service-to-service authentication.
 	SchedulingAdminKey string
+	IncidentURL        string
+	// IncidentAdminKey is sent as X-Admin-Key to the incident service when
+	// enriching manually attached escalations.
+	IncidentAdminKey string
 }
 
 func Load() Config {
@@ -26,6 +30,8 @@ func Load() Config {
 		SchedulingURL:   getenv("SCHEDULING_URL", "http://localhost:8082"),
 
 		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
+		IncidentURL:        getenv("INCIDENT_URL", "http://localhost:8081"),
+		IncidentAdminKey:   os.Getenv("INCIDENT_ADMIN_KEY"),
 	}
 }
 

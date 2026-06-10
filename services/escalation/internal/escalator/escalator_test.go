@@ -146,7 +146,8 @@ func TestAssignPolicy_TriggersTier1(t *testing.T) {
 	)
 
 	esc := makeEscalator(st, sched, pub)
-	err := esc.AssignPolicy(context.Background(), "tenant-a", "team-a", "inc-1", "pol-1")
+	err := esc.AssignPolicy(context.Background(), "tenant-a", "team-a", "inc-1", "pol-1",
+		escalator.IncidentInfo{Title: "DB on fire", Severity: "critical", Status: "open"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +173,41 @@ func TestAssignPolicy_TriggersTier1(t *testing.T) {
 	}
 	if pub.triggered[0].Tier != 1 {
 		t.Errorf("expected tier 1 in event, got %d", pub.triggered[0].Tier)
+	}
+	// Incident data captured at assign time is carried into the event.
+	ev := pub.triggered[0]
+	if ev.IncidentTitle != "DB on fire" || ev.IncidentSeverity != "critical" || ev.IncidentStatus != "open" {
+		t.Errorf("incident fields not propagated to event: %+v", ev)
+	}
+}
+
+func TestAdvance_CarriesIncidentFieldsFromState(t *testing.T) {
+	st := newMemStore()
+	pub := &mockPublisher{}
+	sched := &mockSchedClient{result: &schedclient.OncallResult{UserID: "bob", Username: "bob"}}
+
+	setupPolicy(st, "pol-1", "tenant-a",
+		&domain.PolicyTier{ID: "t1", PolicyID: "pol-1", TierNumber: 1, TimeoutSeconds: 60},
+		&domain.PolicyTier{ID: "t2", PolicyID: "pol-1", TierNumber: 2, TimeoutSeconds: 120, NotifyScheduleID: "sched-2"},
+	)
+	state := &domain.EscalationState{
+		ID: "s1", IncidentID: "inc-9", TenantID: "tenant-a", TenantSlug: "team-a",
+		PolicyID: "pol-1", CurrentTier: 1, Status: "active",
+		EscalateAt:    time.Now().Add(-1 * time.Second),
+		IncidentTitle: "API latency", IncidentSeverity: "high", IncidentStatus: "open",
+	}
+	st.states["inc-9"] = state
+
+	esc := makeEscalator(st, sched, pub)
+	if err := esc.AdvanceOrExhaust(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.triggered) != 1 {
+		t.Fatalf("expected 1 triggered event, got %d", len(pub.triggered))
+	}
+	ev := pub.triggered[0]
+	if ev.IncidentTitle != "API latency" || ev.IncidentSeverity != "high" || ev.IncidentStatus != "open" {
+		t.Errorf("incident fields not carried from state: %+v", ev)
 	}
 }
 
@@ -293,7 +329,8 @@ func TestAutoAssign_UsesDefaultPolicy(t *testing.T) {
 	st.configs["tenant-b"] = &domain.TenantConfig{TenantID: "tenant-b", DefaultPolicyID: &pid}
 
 	esc := makeEscalator(st, sched, pub)
-	if err := esc.AutoAssign(context.Background(), "tenant-b", "team-b", "inc-5"); err != nil {
+	if err := esc.AutoAssign(context.Background(), "tenant-b", "team-b", "inc-5",
+		escalator.IncidentInfo{Title: "Disk full", Severity: "high", Status: "open"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -312,7 +349,7 @@ func TestAutoAssign_NoopWhenNoConfig(t *testing.T) {
 	esc := makeEscalator(st, sched, pub)
 
 	// No config for tenant — should silently succeed
-	if err := esc.AutoAssign(context.Background(), "tenant-c", "team-c", "inc-6"); err != nil {
+	if err := esc.AutoAssign(context.Background(), "tenant-c", "team-c", "inc-6", escalator.IncidentInfo{}); err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
 	if len(st.states) != 0 {

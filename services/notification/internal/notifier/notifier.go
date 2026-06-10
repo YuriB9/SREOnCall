@@ -13,14 +13,19 @@ import (
 	"github.com/sre-oncall/notification/internal/store"
 )
 
-// TriggeredEvent mirrors the escalation.triggered payload.
+// TriggeredEvent mirrors the escalation.triggered payload. Incident fields
+// may be absent in events from older escalation versions — senders fall back
+// to ID+tier content.
 type TriggeredEvent struct {
-	IncidentID     string `json:"incident_id"`
-	TenantID       string `json:"tenant_id"`
-	TenantSlug     string `json:"tenant_slug"`
-	Tier           int    `json:"tier"`
-	OncallUserID   string `json:"oncall_user_id"`
-	OncallUsername string `json:"oncall_username"`
+	IncidentID       string `json:"incident_id"`
+	TenantID         string `json:"tenant_id"`
+	TenantSlug       string `json:"tenant_slug"`
+	Tier             int    `json:"tier"`
+	OncallUserID     string `json:"oncall_user_id"`
+	OncallUsername   string `json:"oncall_username"`
+	IncidentTitle    string `json:"incident_title"`
+	IncidentSeverity string `json:"incident_severity"`
+	IncidentStatus   string `json:"incident_status"`
 }
 
 // ExhaustedEvent mirrors the escalation.exhausted payload.
@@ -52,13 +57,14 @@ type MattermostDispatcher interface {
 }
 
 type Notifier struct {
-	store      Store
-	cache      TenantCache
-	limiter    RateLimiter
-	email      EmailDispatcher
-	mattermost MattermostDispatcher
-	smtpFrom   string
-	logger     *slog.Logger
+	store           Store
+	cache           TenantCache
+	limiter         RateLimiter
+	email           EmailDispatcher
+	mattermost      MattermostDispatcher
+	smtpFrom        string
+	frontendBaseURL string
+	logger          *slog.Logger
 }
 
 func New(
@@ -68,17 +74,30 @@ func New(
 	email EmailDispatcher,
 	mm MattermostDispatcher,
 	smtpFrom string,
+	frontendBaseURL string,
 	logger *slog.Logger,
 ) *Notifier {
 	return &Notifier{
-		store:      st,
-		cache:      cache,
-		limiter:    rl,
-		email:      email,
-		mattermost: mm,
-		smtpFrom:   smtpFrom,
-		logger:     logger,
+		store:           st,
+		cache:           cache,
+		limiter:         rl,
+		email:           email,
+		mattermost:      mm,
+		smtpFrom:        smtpFrom,
+		frontendBaseURL: strings.TrimRight(frontendBaseURL, "/"),
+		logger:          logger,
 	}
+}
+
+// incidentLink builds the dashboard deep link for an incident, or "" when
+// FRONTEND_BASE_URL is not configured (notifications go out without a link).
+func (n *Notifier) incidentLink(tenantSlug, incidentID string) string {
+	if n.frontendBaseURL == "" {
+		n.logger.Warn("FRONTEND_BASE_URL not set — notification sent without incident link",
+			"incident_id", incidentID)
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/incidents?incident=%s", n.frontendBaseURL, tenantSlug, incidentID)
 }
 
 // NotifyTriggered handles escalation.triggered: notifies the on-call user via enabled channels.
@@ -147,11 +166,15 @@ func (n *Notifier) dispatchToContact(
 	contact *domain.UserContact,
 	cfg *schedclient.TenantNotificationConfig,
 ) {
+	link := n.incidentLink(ev.TenantSlug, ev.IncidentID)
 	msg := dispatcher.EmailMessage{
 		IncidentID: ev.IncidentID,
 		TenantID:   ev.TenantID,
-		Title:      fmt.Sprintf("Escalation tier %d", ev.Tier),
+		Title:      ev.IncidentTitle, // may be empty — dispatcher falls back to ID+tier
+		Severity:   ev.IncidentSeverity,
+		Status:     ev.IncidentStatus,
 		Tier:       ev.Tier,
+		Link:       link,
 	}
 
 	for _, ch := range contact.EnabledChannels {
@@ -187,14 +210,29 @@ func (n *Notifier) dispatchToContact(
 			if contact.MattermostUsername != "" {
 				mention = "@" + contact.MattermostUsername + " "
 			}
-			text := fmt.Sprintf("%s:rotating_light: Incident `%s` escalated to tier %d — you are on call",
-				mention, ev.IncidentID, ev.Tier)
+			text := mattermostText(mention, link, ev)
 			n.dispatchChannel(ctx, ev.TenantID, ev.OncallUserID, ev.IncidentID,
 				domain.ChannelMattermost, cfg.MattermostWebhookURL, func() error {
 					return n.mattermost.Send(ctx, cfg.MattermostWebhookURL, cfg.MattermostChannel, text)
 				})
 		}
 	}
+}
+
+// mattermostText formats the on-call notification. With enriched payload it
+// carries title, severity and status; otherwise it falls back to ID+tier.
+func mattermostText(mention, link string, ev TriggeredEvent) string {
+	var b strings.Builder
+	if ev.IncidentTitle != "" {
+		fmt.Fprintf(&b, "%s:rotating_light: [%s] %s\n", mention, ev.IncidentSeverity, ev.IncidentTitle)
+		fmt.Fprintf(&b, "Incident `%s` — status %s, tier %d — you are on call", ev.IncidentID, ev.IncidentStatus, ev.Tier)
+	} else {
+		fmt.Fprintf(&b, "%s:rotating_light: Incident `%s` escalated to tier %d — you are on call", mention, ev.IncidentID, ev.Tier)
+	}
+	if link != "" {
+		fmt.Fprintf(&b, "\n%s", link)
+	}
+	return b.String()
 }
 
 // dispatchChannel applies rate-limiting, calls send(), and writes to notification_log.

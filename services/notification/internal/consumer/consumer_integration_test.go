@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/notification/internal/consumer"
 	"github.com/sre-oncall/notification/internal/dispatcher"
 	"github.com/sre-oncall/notification/internal/domain"
 	"github.com/sre-oncall/notification/internal/notifier"
 	"github.com/sre-oncall/notification/internal/schedclient"
 	"github.com/sre-oncall/notification/internal/store"
+	pkgamqp "github.com/sre-oncall/pkg/amqp"
 )
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
@@ -48,7 +48,9 @@ type alwaysAllow struct{}
 
 func (alwaysAllow) Allow(_ context.Context, _, _, _ string) (bool, error) { return true, nil }
 
-type noopCache struct{ cfg *schedclient.TenantNotificationConfig }
+type noopCache struct {
+	cfg *schedclient.TenantNotificationConfig
+}
 
 func (c *noopCache) Get(_ context.Context, _ string) (*schedclient.TenantNotificationConfig, error) {
 	return c.cfg, nil

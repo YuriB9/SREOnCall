@@ -7,3 +7,4 @@ data:
   HTTP_PORT: "8080"
   KEYCLOAK_JWKS_URL: "http://keycloak:8080/realms/oncall/protocol/openid-connect/certs"
   SCHEDULING_URL: "http://scheduling"
+  INCIDENT_URL: "http://incident"

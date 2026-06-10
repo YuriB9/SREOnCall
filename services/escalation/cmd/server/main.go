@@ -20,6 +20,7 @@ import (
 	"github.com/sre-oncall/escalation/internal/consumer"
 	"github.com/sre-oncall/escalation/internal/escalator"
 	"github.com/sre-oncall/escalation/internal/handler"
+	"github.com/sre-oncall/escalation/internal/incclient"
 	"github.com/sre-oncall/escalation/internal/monitor"
 	"github.com/sre-oncall/escalation/internal/publisher"
 	"github.com/sre-oncall/escalation/internal/schedclient"
@@ -49,6 +50,7 @@ func main() {
 	// ── Dependencies ──────────────────────────────────────────────────────────
 	st := store.New(pool)
 	schedClient := schedclient.New(cfg.SchedulingURL, cfg.SchedulingAdminKey)
+	incClient := incclient.New(cfg.IncidentURL, cfg.IncidentAdminKey)
 
 	// RabbitMQ is optional — skipped if RABBITMQ_URL is unset.
 	var pub escalator.Publisher = publisher.NewNoop()
@@ -103,7 +105,7 @@ func main() {
 	}
 
 	// ── HTTP router ───────────────────────────────────────────────────────────
-	h := handler.New(st, esc, logger)
+	h := handler.New(st, esc, incClient, logger)
 	r := chi.NewRouter()
 	r.Use(pkgmetrics.Middleware("escalation"))
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })

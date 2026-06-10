@@ -4,14 +4,21 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
+	"strings"
 	"time"
 )
 
 type EmailMessage struct {
 	IncidentID string
 	TenantID   string
-	Title      string
-	Tier       int
+	// Title is the incident title from the escalation payload; empty when the
+	// event predates enrichment — the dispatcher falls back to ID+tier.
+	Title    string
+	Severity string
+	Status   string
+	Tier     int
+	// Link is the dashboard deep link; empty when FRONTEND_BASE_URL is unset.
+	Link string
 }
 
 type Email struct {
@@ -26,12 +33,30 @@ func NewEmail(host, port, username, password string) *Email {
 }
 
 func (d *Email) Send(_ context.Context, from, to string, msg EmailMessage) error {
-	subject := fmt.Sprintf("[SRE OnCall] Incident %s escalated (tier %d)", msg.IncidentID, msg.Tier)
-	body := fmt.Sprintf(
-		"Incident: %s\nTenant: %s\nTitle: %s\nTier: %d\nTime: %s\n",
-		msg.IncidentID, msg.TenantID, msg.Title, msg.Tier,
-		time.Now().UTC().Format(time.RFC3339),
-	)
+	subject := fmt.Sprintf("[SRE OnCall] [%s] %s", msg.Severity, msg.Title)
+	if msg.Title == "" {
+		// Event without incident data (older escalation version) — fallback.
+		subject = fmt.Sprintf("[SRE OnCall] Incident %s escalated (tier %d)", msg.IncidentID, msg.Tier)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Incident: %s\n", msg.IncidentID)
+	fmt.Fprintf(&b, "Tenant: %s\n", msg.TenantID)
+	if msg.Title != "" {
+		fmt.Fprintf(&b, "Title: %s\n", msg.Title)
+	}
+	if msg.Severity != "" {
+		fmt.Fprintf(&b, "Severity: %s\n", msg.Severity)
+	}
+	if msg.Status != "" {
+		fmt.Fprintf(&b, "Status: %s\n", msg.Status)
+	}
+	fmt.Fprintf(&b, "Tier: %d\n", msg.Tier)
+	if msg.Link != "" {
+		fmt.Fprintf(&b, "Link: %s\n", msg.Link)
+	}
+	fmt.Fprintf(&b, "Time: %s\n", time.Now().UTC().Format(time.RFC3339))
+	body := b.String()
 	raw := fmt.Sprintf(
 		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n\r\n%s",
 		from, to, subject, body,

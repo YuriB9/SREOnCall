@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sre-oncall/escalation/internal/domain"
+	"github.com/sre-oncall/escalation/internal/escalator"
+	"github.com/sre-oncall/escalation/internal/incclient"
 	"github.com/sre-oncall/escalation/internal/store"
 )
 
@@ -29,18 +31,25 @@ type Store interface {
 
 // Escalator handles core escalation business logic.
 type Escalator interface {
-	AssignPolicy(ctx context.Context, tenantID, tenantSlug, incidentID, policyID string) error
+	AssignPolicy(ctx context.Context, tenantID, tenantSlug, incidentID, policyID string, inc escalator.IncidentInfo) error
 	ManualEscalate(ctx context.Context, tenantID, incidentID string) error
+}
+
+// IncidentClient fetches incident data for enriching manually attached
+// escalations. May be nil when the incident service is not configured.
+type IncidentClient interface {
+	GetIncident(ctx context.Context, tenantID, incidentID string) (*incclient.Incident, error)
 }
 
 type Handler struct {
 	store    Store
 	escalate Escalator
+	incident IncidentClient
 	logger   *slog.Logger
 }
 
-func New(st Store, esc Escalator, logger *slog.Logger) *Handler {
-	return &Handler{store: st, escalate: esc, logger: logger}
+func New(st Store, esc Escalator, inc IncidentClient, logger *slog.Logger) *Handler {
+	return &Handler{store: st, escalate: esc, incident: inc, logger: logger}
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -215,7 +224,21 @@ func (h *Handler) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	incidentID := chi.URLParam(r, "incidentId")
-	err := h.escalate.AssignPolicy(r.Context(), tenant(r), tenantSlug, incidentID, body.PolicyID)
+
+	// Manual attach has no incident.created event at hand — fetch incident
+	// data from the incident service. A failure must not block the attach:
+	// the escalation proceeds with empty incident fields and a warn log.
+	var info escalator.IncidentInfo
+	if h.incident != nil {
+		if inc, err := h.incident.GetIncident(r.Context(), tenant(r), incidentID); err != nil {
+			h.logger.Warn("attach policy: incident fetch failed, proceeding with empty incident fields",
+				"incident_id", incidentID, "err", err)
+		} else {
+			info = escalator.IncidentInfo{Title: inc.Title, Severity: inc.Severity, Status: inc.Status}
+		}
+	}
+
+	err := h.escalate.AssignPolicy(r.Context(), tenant(r), tenantSlug, incidentID, body.PolicyID, info)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "policy not found")
 		return

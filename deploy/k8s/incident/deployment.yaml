@@ -25,6 +25,12 @@ spec:
                 name: incident-config
             - secretRef:
                 name: incident-secret
+          env:
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: service-auth
+                  key: ADMIN_KEY
           livenessProbe:
             httpGet:
               path: /healthz

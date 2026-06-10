@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 
 import { apiClient } from './client'
-import type { OnCallNow, Override, Schedule, ShiftWindow } from './types'
+import type { Override, Schedule } from './types'
 
 // ─── Query keys ───────────────────────────────────────────────────────────────
 
@@ -26,39 +26,6 @@ export function useSchedules(tenant: string) {
       const { data } = await apiClient.get<Schedule[]>(`/schedules/v1/${tenant}/schedules`)
       return data
     },
-  })
-}
-
-export function useOnCallNow(tenant: string, scheduleId: string) {
-  return useQuery({
-    queryKey: scheduleKeys(tenant).oncall(scheduleId),
-    queryFn: async () => {
-      const { data } = await apiClient.get<OnCallNow | null>(
-        `/schedules/v1/${tenant}/schedules/${scheduleId}/oncall`,
-      )
-      return data
-    },
-    refetchInterval: 60_000,
-    enabled: Boolean(scheduleId),
-  })
-}
-
-export function useScheduleWindow(
-  tenant: string,
-  scheduleId: string,
-  from: string,
-  to: string,
-) {
-  return useQuery({
-    queryKey: scheduleKeys(tenant).window(scheduleId, from, to),
-    queryFn: async () => {
-      const { data } = await apiClient.get<ShiftWindow[]>(
-        `/schedules/v1/${tenant}/schedules/${scheduleId}/oncall`,
-        { params: { from, to } },
-      )
-      return data
-    },
-    enabled: Boolean(scheduleId && from && to),
   })
 }
 

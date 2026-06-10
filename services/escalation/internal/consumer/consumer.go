@@ -6,8 +6,8 @@ import (
 	"log/slog"
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
-	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/escalation/internal/escalator"
+	pkgamqp "github.com/sre-oncall/pkg/amqp"
 )
 
 // incidentPayload matches the incident.created / incident.updated envelope payload.
@@ -16,6 +16,8 @@ type incidentPayload struct {
 	TenantID   string `json:"tenant_id"`
 	TenantSlug string `json:"tenant_slug"`
 	Status     string `json:"status"`
+	Title      string `json:"title"`
+	Severity   string `json:"severity"`
 }
 
 type Consumer struct {
@@ -69,7 +71,8 @@ func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
 
 	switch env.Type {
 	case pkgamqp.RoutingKeyIncidentCreated:
-		if err := c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID); err != nil {
+		inc := escalator.IncidentInfo{Title: payload.Title, Severity: payload.Severity, Status: payload.Status}
+		if err := c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID, inc); err != nil {
 			c.logger.Error("consumer: auto assign failed",
 				"incident_id", payload.IncidentID, "err", err)
 			_ = msg.Nack(false, true) // requeue
@@ -100,7 +103,8 @@ func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
 	}
 	switch env.Type {
 	case pkgamqp.RoutingKeyIncidentCreated:
-		return c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID)
+		return c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID,
+			escalator.IncidentInfo{Title: payload.Title, Severity: payload.Severity, Status: payload.Status})
 	case pkgamqp.RoutingKeyIncidentUpdated:
 		if payload.Status == "acknowledged" || payload.Status == "resolved" {
 			return c.escalate.Stop(ctx, payload.TenantID, payload.IncidentID, payload.Status)
@@ -108,4 +112,3 @@ func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
 	}
 	return nil
 }
-

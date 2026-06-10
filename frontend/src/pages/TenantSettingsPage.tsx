@@ -16,7 +16,7 @@ import { showToast } from '@/lib/toast'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const VALID_SOURCES = ['alertmanager', 'grafana', 'zabbix'] as const
+const VALID_SOURCES = ['alertmanager', 'grafana'] as const
 type ValidSource = (typeof VALID_SOURCES)[number]
 
 function formatDate(iso: string) {

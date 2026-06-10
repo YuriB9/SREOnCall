@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -83,7 +84,12 @@ func logger() *slog.Logger { return slog.New(slog.NewTextHandler(os.Stdout, nil)
 
 func makeNotifier(st notifier.Store, cache notifier.TenantCache, rl notifier.RateLimiter,
 	email notifier.EmailDispatcher, mm notifier.MattermostDispatcher) *notifier.Notifier {
-	return notifier.New(st, cache, rl, email, mm, "oncall@example.com", logger())
+	return notifier.New(st, cache, rl, email, mm, "oncall@example.com", "https://oncall.example.com", logger())
+}
+
+func makeNotifierNoBaseURL(st notifier.Store, cache notifier.TenantCache, rl notifier.RateLimiter,
+	email notifier.EmailDispatcher, mm notifier.MattermostDispatcher) *notifier.Notifier {
+	return notifier.New(st, cache, rl, email, mm, "oncall@example.com", "", logger())
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -278,5 +284,121 @@ func TestNotifyExhausted_NoMattermostConfig_LogsFailure(t *testing.T) {
 
 	if len(st.logs) != 1 || st.logs[0].Status != domain.StatusFailed {
 		t.Errorf("expected failed log for missing mattermost config, got %v", st.logs)
+	}
+}
+
+// ── Enriched payload content (enrich-notifications) ───────────────────────────
+
+func enrichedEvent() notifier.TriggeredEvent {
+	return notifier.TriggeredEvent{
+		IncidentID:       "inc-7",
+		TenantID:         "tenant-a",
+		TenantSlug:       "team-a",
+		Tier:             2,
+		OncallUserID:     "alice",
+		IncidentTitle:    "DB on fire",
+		IncidentSeverity: "critical",
+		IncidentStatus:   "open",
+	}
+}
+
+func TestNotifyTriggered_EnrichedEmailContent(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", Email: "alice@example.com",
+		EnabledChannels: []string{domain.ChannelEmail},
+	}
+	email := &stubEmail{}
+	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: true}, email, &stubMattermost{})
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(email.calls))
+	}
+	msg := email.calls[0]
+	if msg.Title != "DB on fire" || msg.Severity != "critical" || msg.Status != "open" || msg.Tier != 2 {
+		t.Errorf("email message missing incident data: %+v", msg)
+	}
+	want := "https://oncall.example.com/team-a/incidents?incident=inc-7"
+	if msg.Link != want {
+		t.Errorf("link = %q, want %q", msg.Link, want)
+	}
+}
+
+func TestNotifyTriggered_EnrichedMattermostContent(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", MattermostUsername: "alice",
+		EnabledChannels: []string{domain.ChannelMattermost},
+	}
+	mm := &stubMattermost{}
+	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		MattermostWebhookURL: "https://mm.example.com/hooks/abc", MattermostChannel: "#oncall",
+	}}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, &stubEmail{}, mm)
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(mm.calls) != 1 {
+		t.Fatalf("expected 1 mattermost message, got %d", len(mm.calls))
+	}
+	text := mm.calls[0]
+	for _, part := range []string{"@alice", "inc-7", "DB on fire", "critical", "open", "tier 2",
+		"https://oncall.example.com/team-a/incidents?incident=inc-7"} {
+		if !strings.Contains(text, part) {
+			t.Errorf("mattermost text missing %q: %s", part, text)
+		}
+	}
+}
+
+func TestNotifyTriggered_FallbackWithoutIncidentFields(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", Email: "alice@example.com", MattermostUsername: "alice",
+		EnabledChannels: []string{domain.ChannelEmail, domain.ChannelMattermost},
+	}
+	email := &stubEmail{}
+	mm := &stubMattermost{}
+	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		MattermostWebhookURL: "https://mm.example.com/hooks/abc", MattermostChannel: "#oncall",
+	}}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, mm)
+
+	// Old-style event: no incident_title/severity/status.
+	ev := notifier.TriggeredEvent{IncidentID: "inc-8", TenantID: "tenant-a", TenantSlug: "team-a", Tier: 1, OncallUserID: "alice"}
+	if err := n.NotifyTriggered(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 1 || len(mm.calls) != 1 {
+		t.Fatalf("expected both channels delivered, got email=%d mm=%d", len(email.calls), len(mm.calls))
+	}
+	if email.calls[0].Title != "" {
+		t.Errorf("expected empty title for fallback, got %q", email.calls[0].Title)
+	}
+	if !strings.Contains(mm.calls[0], "inc-8") || !strings.Contains(mm.calls[0], "tier 1") {
+		t.Errorf("fallback mattermost text missing ID/tier: %s", mm.calls[0])
+	}
+}
+
+func TestNotifyTriggered_NoLinkWithoutBaseURL(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", Email: "alice@example.com",
+		EnabledChannels: []string{domain.ChannelEmail},
+	}
+	email := &stubEmail{}
+	n := makeNotifierNoBaseURL(st, &stubCache{}, &stubLimiter{allowed: true}, email, &stubMattermost{})
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(email.calls))
+	}
+	if email.calls[0].Link != "" {
+		t.Errorf("expected empty link without FRONTEND_BASE_URL, got %q", email.calls[0].Link)
 	}
 }

@@ -63,7 +63,10 @@ func main() {
 	emailDisp := dispatcher.NewEmail(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword)
 	mmDisp := dispatcher.NewMattermost()
 
-	notif := notifier.New(st, cache, rl, emailDisp, mmDisp, cfg.SMTPFrom, logger)
+	if cfg.FrontendBaseURL == "" {
+		logger.Warn("FRONTEND_BASE_URL not set — notifications will not contain incident links")
+	}
+	notif := notifier.New(st, cache, rl, emailDisp, mmDisp, cfg.SMTPFrom, cfg.FrontendBaseURL, logger)
 
 	// ── RabbitMQ (optional — skipped if RABBITMQ_URL is unset) ───────────────
 	if cfg.AMQPURL != "" {

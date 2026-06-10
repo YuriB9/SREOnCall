@@ -85,8 +85,6 @@ func DefaultGroupingLabels(source string) []string {
 		return []string{"alertname", "job"}
 	case "grafana":
 		return []string{"alertname"}
-	case "zabbix":
-		return []string{"host", "trigger_name"}
 	default:
 		return []string{"alertname"}
 	}

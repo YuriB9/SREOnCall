@@ -18,13 +18,16 @@ type Config struct {
 	// SchedulingAdminKey is sent as X-Admin-Key to the scheduling service
 	// for service-to-service authentication.
 	SchedulingAdminKey string
-	SMTPHost           string
-	SMTPPort           string
-	SMTPUsername       string
-	SMTPPassword       string
-	SMTPFrom           string
-	RateLimitMax       int
-	RateLimitWindow    int
+	// FrontendBaseURL is the dashboard base URL used to build incident deep
+	// links in notifications; when empty, notifications go out without links.
+	FrontendBaseURL string
+	SMTPHost        string
+	SMTPPort        string
+	SMTPUsername    string
+	SMTPPassword    string
+	SMTPFrom        string
+	RateLimitMax    int
+	RateLimitWindow int
 }
 
 func getenv(key, def string) string {
@@ -59,6 +62,7 @@ func Load() Config {
 		SchedulingURL:   getenv("SCHEDULING_URL", "http://localhost:8082"),
 
 		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
+		FrontendBaseURL:    os.Getenv("FRONTEND_BASE_URL"),
 
 		SMTPHost:        getenv("SMTP_HOST", "localhost"),
 		SMTPPort:        getenv("SMTP_PORT", "25"),
