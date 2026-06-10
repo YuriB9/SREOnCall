@@ -8,28 +8,28 @@
 
 ### Requirement: Идентификация тенанта по вебхук-токену
 
-Все webhook-эндпоинты ingestion-сервиса ДОЛЖНЫ (SHALL) требовать заголовок `X-Webhook-Token`. Сервис ДОЛЖЕН выполнять lookup токена в таблице `tenant_webhook_tokens` (сравнение по SHA-256 хэшу) и извлекать `tenant_id` для дальнейшей обработки алерта.
+Все webhook-эндпоинты ingestion-сервиса ДОЛЖНЫ (SHALL) требовать заголовок `X-Webhook-Token`. Сервис ДОЛЖЕН вычислять SHA-256 хэш токена и выполнять lookup в Redis-индексе `oncall:tokens:{hash}` (поддерживается сервисом scheduling при создании/отзыве токенов), извлекая `tenant_id` для дальнейшей обработки алерта. Прямое чтение таблиц scheduling-сервиса НЕ ДОЛЖНО использоваться.
 
 #### Scenario: Валидный токен
 
-- **WHEN** запрос содержит `X-Webhook-Token`, совпадающий с записью в `tenant_webhook_tokens`
-- **THEN** `tenant_id` из этой записи присваивается алерту и обработка продолжается
+- **WHEN** запрос содержит `X-Webhook-Token`, хэш которого присутствует в Redis-индексе `oncall:tokens:{hash}`
+- **THEN** `tenant_id` из индекса присваивается алерту и обработка продолжается
 
 #### Scenario: Отсутствующий или недействительный токен
 
-- **WHEN** заголовок `X-Webhook-Token` отсутствует или не совпадает ни с одной записью
+- **WHEN** заголовок `X-Webhook-Token` отсутствует или его хэш не найден в индексе
 - **THEN** сервис возвращает HTTP 401 без дополнительной обработки
 
 ---
 
 ### Requirement: Приём вебхуков Prometheus Alertmanager
 
-Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingest/v1/webhook/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать приём ответом HTTP 200 после успешной обработки всех алертов payload.
 
 #### Scenario: Корректный payload Alertmanager
 
-- **WHEN** Alertmanager отправляет POST с валидным payload на `/api/ingestion/v1/alertmanager`
-- **THEN** сервис возвращает HTTP 200 и ставит каждый алерт в очередь на обработку
+- **WHEN** Alertmanager отправляет POST с валидным payload на `/api/ingest/v1/webhook/alertmanager`
+- **THEN** сервис нормализует, дедуплицирует и публикует каждый алерт, после чего возвращает HTTP 200
 
 #### Scenario: Некорректный payload
 
@@ -40,16 +40,16 @@
 
 ### Requirement: Приём вебхуков Grafana
 
-Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/grafana`, принимающий payload вебхука Grafana Alerting и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingest/v1/webhook/grafana`, принимающий payload legacy-вебхука Grafana (поля `state`, `ruleName`, `tags`, `message`) и подтверждать приём ответом HTTP 200 после успешной обработки.
 
 #### Scenario: Корректный payload алерта Grafana
 
-- **WHEN** Grafana отправляет POST с валидным вебхуком алерта на `/api/ingestion/v1/grafana`
-- **THEN** сервис возвращает HTTP 200 и ставит алерт в очередь на обработку
+- **WHEN** Grafana отправляет POST с валидным вебхуком алерта (`state: alerting`) на `/api/ingest/v1/webhook/grafana`
+- **THEN** сервис нормализует алерт как firing, обрабатывает его и возвращает HTTP 200
 
 #### Scenario: Статус resolved в Grafana
 
-- **WHEN** payload Grafana содержит `state: ok` (алерт закрыт)
+- **WHEN** payload Grafana содержит `state: ok` или `state: paused`
 - **THEN** сервис нормализует его как событие resolved-алерта
 
 ---
@@ -90,14 +90,14 @@
 
 ### Requirement: Публикация нормализованных алертов в RabbitMQ
 
-Сервис ingestion ДОЛЖЕН (SHALL) публиковать каждый не-дедублицированный нормализованный алерт на exchange `alerts` в RabbitMQ (routing key `alert.received`) в виде JSON-сообщения.
+Сервис ingestion ДОЛЖЕН (SHALL) публиковать каждый не-дедублицированный нормализованный алерт на exchange `alerts` в RabbitMQ (routing key `alert.received`) в виде JSON-сообщения **синхронно в рамках обработки HTTP-запроса**: успешный ответ вебхука означает, что алерты опубликованы.
 
 #### Scenario: Успешная публикация
 
 - **WHEN** нормализованный неповторяющийся алерт готов к публикации
-- **THEN** сервис публикует AMQP-сообщение на exchange `alerts` и записывает временную метку публикации
+- **THEN** сервис публикует AMQP-сообщение на exchange `alerts` и после обработки всех алертов payload возвращает HTTP 200
 
 #### Scenario: RabbitMQ недоступен
 
 - **WHEN** брокер RabbitMQ недоступен в момент публикации
-- **THEN** сервис выполняет повторные попытки с экспоненциальной задержкой до 3 раз, затем логирует структурированную ошибку и возвращает HTTP 500 вызывающей стороне
+- **THEN** сервис выполняет до 3 повторных попыток с экспоненциальной задержкой; при окончательном сбое удаляет dedup-ключ алерта (чтобы повторная отправка источником прошла дедупликацию), логирует структурированную ошибку и возвращает HTTP 503 вызывающей стороне
