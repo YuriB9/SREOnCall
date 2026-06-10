@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"github.com/sre-oncall/notification/internal/dispatcher"
@@ -106,15 +107,15 @@ func (n *Notifier) NotifyExhausted(ctx context.Context, ev ExhaustedEvent) error
 	if err != nil {
 		n.logger.Warn("tenant cache fetch failed", "tenant_slug", ev.TenantSlug, "err", err)
 	}
-	if cfg == nil || cfg.MattermostWebhookURL == "" {
-		n.logger.Warn("mattermost not configured for tenant — skipping exhausted notification",
+	if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
+		n.logger.Error("mattermost webhook URL missing or masked — skipping exhausted notification",
 			"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID)
 		n.appendLog(ctx, &domain.NotificationLog{
 			IncidentID:  ev.IncidentID,
 			TenantID:    ev.TenantID,
 			Channel:     domain.ChannelMattermost,
 			Status:      domain.StatusFailed,
-			ErrorDetail: "mattermost not configured for tenant",
+			ErrorDetail: "mattermost webhook URL missing or masked",
 		})
 		return nil
 	}
@@ -169,9 +170,17 @@ func (n *Notifier) dispatchToContact(
 				})
 
 		case domain.ChannelMattermost:
-			if cfg == nil || cfg.MattermostWebhookURL == "" {
-				n.logger.Warn("mattermost not configured for tenant",
+			if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
+				n.logger.Error("mattermost webhook URL missing or masked — skipping notification",
 					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
+				n.appendLog(ctx, &domain.NotificationLog{
+					IncidentID:  ev.IncidentID,
+					TenantID:    ev.TenantID,
+					UserID:      ev.OncallUserID,
+					Channel:     domain.ChannelMattermost,
+					Status:      domain.StatusFailed,
+					ErrorDetail: "mattermost webhook URL missing or masked",
+				})
 				continue
 			}
 			mention := ""
@@ -232,6 +241,20 @@ func (n *Notifier) dispatchChannel(
 		Recipient:   recipient,
 		ErrorDetail: errDetail,
 	})
+}
+
+// webhookURLUsable reports whether the URL looks like a deliverable Mattermost
+// webhook. Masked URLs from scheduling (`scheme://host/***` or `***`) and URLs
+// without a path after the host must never be sent to.
+func webhookURLUsable(raw string) bool {
+	if raw == "" || strings.Contains(raw, "***") {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	return u.Path != "" && u.Path != "/"
 }
 
 func (n *Notifier) appendLog(ctx context.Context, l *domain.NotificationLog) {

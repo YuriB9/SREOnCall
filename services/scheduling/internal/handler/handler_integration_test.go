@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sre-oncall/pkg/auth"
 	"github.com/sre-oncall/scheduling/internal/domain"
 	"github.com/sre-oncall/scheduling/internal/handler"
 	"github.com/sre-oncall/scheduling/internal/store"
@@ -427,6 +428,58 @@ func newTenantSrv(t *testing.T) (*httptest.Server, *memStore) {
 	st := newMemStore()
 	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	return httptest.NewServer(newTenantRouter(h)), st
+}
+
+// withAuthMethod simulates pkg/auth.Middleware marking the authentication
+// method in the request context ("" means no method, e.g. JWKS disabled).
+func withAuthMethod(m auth.Method, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if m != "" {
+			r = r.WithContext(auth.WithMethod(r.Context(), m))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func TestTenantNotificationConfig_WebhookMasking(t *testing.T) {
+	const fullURL = "https://mm.example.com/hooks/abc123"
+
+	cases := []struct {
+		name    string
+		method  auth.Method
+		wantURL string
+	}{
+		{"user JWT gets masked URL", auth.MethodUser, "https://mm.example.com/***"},
+		{"service admin key gets full URL", auth.MethodService, fullURL},
+		{"undetermined method gets masked URL", "", "https://mm.example.com/***"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newMemStore()
+			st.notifCfg["tenant-a"] = &store.NotificationConfig{
+				TenantID:             "tenant-a",
+				MattermostWebhookURL: fullURL,
+				MattermostChannel:    "oncall",
+			}
+			h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+			srv := httptest.NewServer(withAuthMethod(tc.method, newTenantRouter(h)))
+			defer srv.Close()
+
+			resp, err := http.Get(srv.URL + "/api/schedules/v1/tenants/tenant-a/notification-config")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200, got %d", resp.StatusCode)
+			}
+			var out map[string]string
+			_ = json.NewDecoder(resp.Body).Decode(&out)
+			if out["mattermost_webhook_url"] != tc.wantURL {
+				t.Errorf("mattermost_webhook_url = %q, want %q", out["mattermost_webhook_url"], tc.wantURL)
+			}
+		})
+	}
 }
 
 func TestTenantCRUD(t *testing.T) {

@@ -15,9 +15,9 @@
 
 ## 3. Условное маскирование конфига уведомлений (баг 2.2)
 
-- [ ] 3.1 `services/scheduling/internal/handler/handler.go` (`GetTenantNotificationConfig`): маскировать `mattermost_webhook_url` только для `user`-запросов; для `service` — полный URL; при неопределённом признаке — маскировать
-- [ ] 3.2 `services/notification/internal/notifier/notifier.go`: перед Mattermost-отправкой отбрасывать маскированный/пустой URL (нет пути после хоста) с записью `failed` в журнал и error-логом
-- [ ] 3.3 Тесты handler: GET с JWT → маскированный URL; GET с `X-Admin-Key` → полный URL
+- [x] 3.1 `services/scheduling/internal/handler/handler.go` (`GetTenantNotificationConfig`): маскировать `mattermost_webhook_url` только для `user`-запросов; для `service` — полный URL; при неопределённом признаке — маскировать
+- [x] 3.2 `services/notification/internal/notifier/notifier.go`: перед Mattermost-отправкой отбрасывать маскированный/пустой URL (нет пути после хоста) с записью `failed` в журнал и error-логом
+- [x] 3.3 Тесты handler: GET с JWT → маскированный URL; GET с `X-Admin-Key` → полный URL
 
 ## 4. Защита webhook URL при сохранении (баг 2.4)
 

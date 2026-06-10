@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/sre-oncall/pkg/auth"
 	"github.com/sre-oncall/scheduling/internal/domain"
 	"github.com/sre-oncall/scheduling/internal/rotation"
 	"github.com/sre-oncall/scheduling/internal/store"
@@ -663,12 +664,18 @@ func (h *Handler) GetTenantNotificationConfig(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	// Mask webhook URL to show only scheme+host.
+	// Mask webhook URL (scheme+host only) unless the caller is an
+	// authenticated service (X-Admin-Key): notification needs the full URL.
+	// Masking is the default for user JWTs and any undetermined auth method.
+	webhookURL := maskURL(cfg.MattermostWebhookURL)
+	if m, ok := auth.MethodFromContext(r.Context()); ok && m == auth.MethodService {
+		webhookURL = cfg.MattermostWebhookURL
+	}
 	out := map[string]string{
-		"tenant_id":             cfg.TenantID,
-		"mattermost_webhook_url": maskURL(cfg.MattermostWebhookURL),
-		"mattermost_channel":    cfg.MattermostChannel,
-		"smtp_from":             cfg.SMTPFrom,
+		"tenant_id":              cfg.TenantID,
+		"mattermost_webhook_url": webhookURL,
+		"mattermost_channel":     cfg.MattermostChannel,
+		"smtp_from":              cfg.SMTPFrom,
 	}
 	writeJSON(w, http.StatusOK, out)
 }

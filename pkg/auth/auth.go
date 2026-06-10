@@ -14,7 +14,32 @@ type contextKey int
 
 const (
 	claimsKey contextKey = iota
+	methodKey
 )
+
+// Method identifies how a request was authenticated.
+type Method string
+
+const (
+	// MethodService marks requests authenticated with the X-Admin-Key header.
+	MethodService Method = "service"
+	// MethodUser marks requests authenticated with a Bearer JWT.
+	MethodUser Method = "user"
+)
+
+// WithMethod returns a context carrying the authentication method.
+// Exposed for handler tests; production code relies on Middleware.
+func WithMethod(ctx context.Context, m Method) context.Context {
+	return context.WithValue(ctx, methodKey, m)
+}
+
+// MethodFromContext retrieves the authentication method from the request context.
+// Returns zero value and false if not present; callers must treat that as
+// untrusted (e.g. keep masking applied).
+func MethodFromContext(ctx context.Context) (Method, bool) {
+	m, ok := ctx.Value(methodKey).(Method)
+	return m, ok
+}
 
 // Claims holds the parsed JWT payload fields used by the platform.
 type Claims struct {
@@ -69,7 +94,7 @@ func Middleware(jwksURL, adminKey string) (func(http.Handler) http.Handler, erro
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Admin key bypass.
 			if adminKey != "" && r.Header.Get("X-Admin-Key") == adminKey {
-				next.ServeHTTP(w, r)
+				next.ServeHTTP(w, r.WithContext(WithMethod(r.Context(), MethodService)))
 				return
 			}
 
@@ -94,6 +119,7 @@ func Middleware(jwksURL, adminKey string) (func(http.Handler) http.Handler, erro
 				Groups:            mapStrSlice(mc, "groups"),
 			}
 			ctx := context.WithValue(r.Context(), claimsKey, claims)
+			ctx = WithMethod(ctx, MethodUser)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}, nil
