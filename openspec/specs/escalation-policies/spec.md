@@ -70,10 +70,22 @@
 
 Запросы к сервису scheduling за текущим дежурным ДОЛЖНЫ выполняться с сервисной аутентификацией (заголовок `X-Admin-Key` с ключом из конфигурации сервиса). При сбое запроса дежурного (сетевая ошибка, не-2xx ответ) сервис ДОЛЖЕН залогировать структурированную ошибку с уровнем `error` и причиной; событие `escalation.triggered` с пустыми `oncall_user_id`/`oncall_username` НЕ ДОЛЖНО публиковаться молча — пустые on-call-поля допустимы только с одновременной error-записью в лог, чтобы сбой авторизации был наблюдаемым.
 
+Событие `escalation.triggered` ДОЛЖНО содержать поля `incident_id`, `tenant_id`, `tenant_slug`, `tier`, `oncall_user_id`, `oncall_username`, а также данные инцидента: `incident_title`, `incident_severity`, `incident_status`. Данные инцидента сохраняются в состоянии эскалации из события `incident.created` при авто-назначении политики; при ручной привязке политики сервис ДОЛЖЕН запросить их у incident-сервиса с сервисной аутентификацией, а при сбое запроса — продолжить привязку с пустыми полями и warn-записью в лог.
+
 #### Scenario: Инцидент не подтверждён в течение таймаута
 
-- **WHEN** инцидент с активной политикой эскалации не подтверждён в течение `timeout_minutes` текущего уровня
-- **THEN** сервис escalation запрашивает scheduling (`GET /schedules/{notify_schedule_id}/oncall`) за текущим дежурным, переходит на следующий уровень и публикует событие `escalation.triggered` с полями `incident_id`, `tenant_id`, `tier`, `oncall_user_id`, `oncall_username`
+- **WHEN** инцидент с активной политикой эскалации не подтверждён в течение таймаута текущего уровня
+- **THEN** сервис escalation запрашивает scheduling (`GET /schedules/{notify_schedule_id}/oncall`) за текущим дежурным, переходит на следующий уровень и публикует событие `escalation.triggered` с полями `incident_id`, `tenant_id`, `tier`, `oncall_user_id`, `oncall_username`, `incident_title`, `incident_severity`, `incident_status`
+
+#### Scenario: Данные инцидента сохраняются при авто-назначении
+
+- **WHEN** сервис escalation потребляет `incident.created` и авто-назначает политику по умолчанию
+- **THEN** `title`, `severity` и `status` из payload события сохраняются в состоянии эскалации и включаются во все последующие события `escalation.triggered` этого инцидента
+
+#### Scenario: Ручная привязка политики обогащается через incident-сервис
+
+- **WHEN** политика привязывается к инциденту вручную через `POST /api/escalations/v1/{tenant}/incidents/{incidentId}/policy`
+- **THEN** сервис escalation запрашивает данные инцидента у incident-сервиса с заголовком `X-Admin-Key`; при недоступности incident-сервиса привязка выполняется с пустыми полями инцидента и warn-записью в лог
 
 #### Scenario: Запрос дежурного выполняется с сервисной аутентификацией
 

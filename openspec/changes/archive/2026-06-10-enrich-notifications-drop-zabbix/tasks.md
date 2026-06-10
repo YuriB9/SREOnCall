@@ -23,7 +23,7 @@
 - [x] 3.2 `services/incident/internal/store/store.go:495` и `internal/domain/incident.go`: источники и умолчания группировки без zabbix
 - [x] 3.3 `pkg/domain/alert.go`: удалить константу `SourceZabbix`; проверить компиляцию всех сервисов
 - [x] 3.4 `frontend/src/pages/TenantSettingsPage.tsx:19`: `VALID_SOURCES` без zabbix
-- [ ] 3.5 Обновить упоминание Zabbix в Purpose главной спеки `alert-ingestion` при синхронизации дельт (sync/archive)
+- [x] 3.5 Обновить упоминание Zabbix в Purpose главной спеки `alert-ingestion` при синхронизации дельт (sync/archive)
 
 ## 4. Чистка фронтенда
 

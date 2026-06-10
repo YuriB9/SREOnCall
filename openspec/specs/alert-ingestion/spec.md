@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Приём, нормализация и дедупликация алертов от внешних источников мониторинга (Prometheus Alertmanager, Grafana, Zabbix) с последующей публикацией в шину событий.
+Приём, нормализация и дедупликация алертов от внешних источников мониторинга (Prometheus Alertmanager, Grafana) с последующей публикацией в шину событий.
 
 ## Requirements
 
@@ -50,22 +50,6 @@
 #### Scenario: Статус resolved в Grafana
 
 - **WHEN** payload Grafana содержит `state: ok` (алерт закрыт)
-- **THEN** сервис нормализует его как событие resolved-алерта
-
----
-
-### Requirement: Приём вебхуков Zabbix
-
-Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/zabbix`, принимающий payload HTTP-вебхука медиатипа Zabbix.
-
-#### Scenario: Корректное событие проблемы Zabbix
-
-- **WHEN** Zabbix отправляет POST с payload события проблемы
-- **THEN** сервис возвращает HTTP 200 и ставит алерт в очередь на обработку
-
-#### Scenario: Событие восстановления Zabbix
-
-- **WHEN** Zabbix отправляет POST с событием восстановления для ранее принятой проблемы
 - **THEN** сервис нормализует его как событие resolved-алерта
 
 ---
