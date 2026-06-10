@@ -137,12 +137,24 @@
 
 ### Requirement: Список и фильтрация инцидентов
 
-Сервис incident ДОЛЖЕН предоставлять GET `/api/incidents/v1/{tenant}/incidents` с фильтрацией по `status`, `severity`, `label`, `from_time` и `to_time`.
+Сервис incident ДОЛЖЕН (SHALL) предоставлять GET `/api/incidents/v1/{tenant}/incidents` с фильтрацией по `status`, `severity`, `label`, `from_time` и `to_time`.
+
+Параметр `status` ДОЛЖЕН принимать одно или несколько значений, разделённых запятой (например, `?status=open,acknowledged`); инцидент попадает в выдачу, если его статус равен любому из перечисленных. Каждое значение ДОЛЖНО валидироваться по множеству `open | acknowledged | resolved`; при недопустимом значении сервис возвращает HTTP 400.
 
 #### Scenario: Фильтр по статусу
 
 - **WHEN** GET-запрос содержит `?status=open`
 - **THEN** возвращаются только открытые инциденты
+
+#### Scenario: Фильтр по нескольким статусам
+
+- **WHEN** GET-запрос содержит `?status=open,acknowledged`
+- **THEN** возвращаются инциденты со статусом `open` или `acknowledged`; инциденты `resolved` не возвращаются
+
+#### Scenario: Недопустимое значение статуса
+
+- **WHEN** GET-запрос содержит `?status=open,bogus`
+- **THEN** сервис возвращает HTTP 400 с указанием недопустимого значения
 
 #### Scenario: Пагинация
 
