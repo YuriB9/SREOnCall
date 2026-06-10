@@ -8,7 +8,7 @@
 
 ### Requirement: Потребление событий эскалации
 
-Сервис notification ДОЛЖЕН потреблять сообщения `escalation.triggered` и `escalation.exhausted` из очереди `escalations.notification` в RabbitMQ. Payload события содержит `oncall_user_id` и `oncall_username`, разрешённые escalation service в момент публикации — notification не делает синхронных вызовов в scheduling за on-call данными.
+Сервис notification ДОЛЖЕН (SHALL) потреблять сообщения `escalation.triggered` и `escalation.exhausted` из очереди `escalations.notification` в RabbitMQ. Payload события содержит `oncall_user_id` и `oncall_username`, разрешённые escalation service в момент публикации — notification не делает синхронных вызовов в scheduling за on-call данными.
 
 Первичное оповещение при создании инцидента покрывается событием `escalation.triggered` для tier 1 (публикуется escalation service сразу после авто-назначения политики).
 
@@ -26,7 +26,7 @@
 
 ### Requirement: Отправка Email-уведомлений через SMTP
 
-Сервис notification ДОЛЖЕН отправлять уведомления об инцидентах и эскалациях по электронной почте через настроенный SMTP-сервер.
+Сервис notification ДОЛЖЕН (SHALL) отправлять уведомления об инцидентах и эскалациях по электронной почте через настроенный SMTP-сервер.
 
 Email ДОЛЖЕН содержать: ID инцидента, заголовок, severity, текущий статус, ссылку на эндпоинт API инцидента и временную метку.
 
@@ -44,7 +44,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Отправка уведомлений в Mattermost через входящий вебхук
 
-Сервис notification ДОЛЖЕН отправлять уведомления на настроенный URL входящего вебхука Mattermost.
+Сервис notification ДОЛЖЕН (SHALL) отправлять уведомления на настроенный URL входящего вебхука Mattermost.
 
 Сообщение отправляется в канал тенанта (`mattermost_channel` из `tenant_notification_config`) и ДОЛЖНО включать: ID инцидента, severity, заголовок, статус и упоминание (@) `mattermost_username` дежурного из `user_contacts`, если настроено.
 
@@ -62,7 +62,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Rate-limiting уведомлений на контакт
 
-Сервис notification ДОЛЖЕН применять настраиваемый rate-limit на контакт (по умолчанию: не более 5 уведомлений за 10 минут на контакт) через Redis token bucket.
+Сервис notification ДОЛЖЕН (SHALL) применять настраиваемый rate-limit на контакт (по умолчанию: не более 5 уведомлений за 10 минут на контакт) через Redis token bucket.
 
 #### Scenario: Лимит не превышен
 
@@ -78,7 +78,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Журнал доставки уведомлений
 
-Сервис notification ДОЛЖЕН записывать каждую попытку отправки (канал, получатель, статус, временная метка, сообщение об ошибке при неудаче) в PostgreSQL. Допустимые статусы: `delivered`, `failed`, `rate_limited`.
+Сервис notification ДОЛЖЕН (SHALL) записывать каждую попытку отправки (канал, получатель, статус, временная метка, сообщение об ошибке при неудаче) в PostgreSQL. Допустимые статусы: `delivered`, `failed`, `rate_limited`.
 
 #### Scenario: Запись успешной доставки
 
@@ -94,7 +94,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Настройка контактных данных пользователя
 
-Сервис notification ДОЛЖЕН хранить per-user конфигурацию контактов: `email`, `mattermost_username` и `enabled_channels` (список). Конфигурация привязана к паре `(user_id, tenant_id)`.
+Сервис notification ДОЛЖЕН (SHALL) хранить per-user конфигурацию контактов: `email`, `mattermost_username` и `enabled_channels` (список). Конфигурация привязана к паре `(user_id, tenant_id)`.
 
 #### Scenario: Создание или обновление контактной конфигурации
 
@@ -110,7 +110,7 @@ Email ДОЛЖЕН содержать: ID инцидента, заголовок
 
 ### Requirement: Использование per-tenant конфигурации Mattermost
 
-Сервис notification ДОЛЖЕН брать `mattermost_webhook_url` и `mattermost_channel` из `tenant_notification_config` тенанта, к которому относится инцидент, а не из глобальной конфигурации.
+Сервис notification ДОЛЖЕН (SHALL) брать `mattermost_webhook_url` и `mattermost_channel` из `tenant_notification_config` тенанта, к которому относится инцидент, а не из глобальной конфигурации.
 
 #### Scenario: Отправка в Mattermost с per-tenant webhook
 

@@ -8,7 +8,7 @@
 
 ### Requirement: Идентификация тенанта по вебхук-токену
 
-Все webhook-эндпоинты ingestion-сервиса ДОЛЖНЫ требовать заголовок `X-Webhook-Token`. Сервис ДОЛЖЕН выполнять lookup токена в таблице `tenant_webhook_tokens` (сравнение по SHA-256 хэшу) и извлекать `tenant_id` для дальнейшей обработки алерта.
+Все webhook-эндпоинты ingestion-сервиса ДОЛЖНЫ (SHALL) требовать заголовок `X-Webhook-Token`. Сервис ДОЛЖЕН выполнять lookup токена в таблице `tenant_webhook_tokens` (сравнение по SHA-256 хэшу) и извлекать `tenant_id` для дальнейшей обработки алерта.
 
 #### Scenario: Валидный токен
 
@@ -24,7 +24,7 @@
 
 ### Requirement: Приём вебхуков Prometheus Alertmanager
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/alertmanager`, принимающий payload вебхука Alertmanager (формат v4) и подтверждать получение ответом HTTP 200.
 
 #### Scenario: Корректный payload Alertmanager
 
@@ -40,7 +40,7 @@
 
 ### Requirement: Приём вебхуков Grafana
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/grafana`, принимающий payload вебхука Grafana Alerting и подтверждать получение ответом HTTP 200.
+Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/grafana`, принимающий payload вебхука Grafana Alerting и подтверждать получение ответом HTTP 200.
 
 #### Scenario: Корректный payload алерта Grafana
 
@@ -56,7 +56,7 @@
 
 ### Requirement: Приём вебхуков Zabbix
 
-Сервис ingestion ДОЛЖЕН предоставлять POST-эндпоинт `/api/ingestion/v1/zabbix`, принимающий payload HTTP-вебхука медиатипа Zabbix.
+Сервис ingestion ДОЛЖЕН (SHALL) предоставлять POST-эндпоинт `/api/ingestion/v1/zabbix`, принимающий payload HTTP-вебхука медиатипа Zabbix.
 
 #### Scenario: Корректное событие проблемы Zabbix
 
@@ -72,7 +72,7 @@
 
 ### Requirement: Нормализация алертов в единую схему
 
-Сервис ingestion ДОЛЖЕН нормализовывать все входящие алерты из любого источника в каноническую схему алерта перед дедупликацией и публикацией.
+Сервис ingestion ДОЛЖЕН (SHALL) нормализовывать все входящие алерты из любого источника в каноническую схему алерта перед дедупликацией и публикацией.
 
 Каноническая схема ДОЛЖНА включать: `fingerprint`, `source`, `severity`, `title`, `description`, `labels` (карта ключ-значение), `status` (firing|resolved), `fired_at`, `received_at`.
 
@@ -85,7 +85,7 @@
 
 ### Requirement: Дедупликация алертов через Redis
 
-Сервис ingestion ДОЛЖЕН вычислять SHA-256 fingerprint по отсортированной карте канонических `labels`, полю `source` и `tenant_id` (для изоляции дедупликации между тенантами), и использовать Redis SETNX с настраиваемым TTL (по умолчанию 5 минут) для дедупликации идентичных алертов в пределах окна.
+Сервис ingestion ДОЛЖЕН (SHALL) вычислять SHA-256 fingerprint по отсортированной карте канонических `labels`, полю `source` и `tenant_id` (для изоляции дедупликации между тенантами), и использовать Redis SETNX с настраиваемым TTL (по умолчанию 5 минут) для дедупликации идентичных алертов в пределах окна.
 
 #### Scenario: Дублирующий алерт в пределах окна дедупликации
 
@@ -106,7 +106,7 @@
 
 ### Requirement: Публикация нормализованных алертов в RabbitMQ
 
-Сервис ingestion ДОЛЖЕН публиковать каждый не-дедублицированный нормализованный алерт на exchange `alerts` в RabbitMQ (routing key `alert.received`) в виде JSON-сообщения.
+Сервис ingestion ДОЛЖЕН (SHALL) публиковать каждый не-дедублицированный нормализованный алерт на exchange `alerts` в RabbitMQ (routing key `alert.received`) в виде JSON-сообщения.
 
 #### Scenario: Успешная публикация
 
