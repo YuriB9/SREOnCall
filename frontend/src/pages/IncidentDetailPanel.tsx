@@ -157,9 +157,18 @@ export function IncidentDetailPanel({ tenant, incidentId, onClose }: Props) {
                     <Badge variant="secondary" className="text-xs">
                       source: {alert.source}
                     </Badge>
-                    <Badge variant="secondary" className="text-xs font-mono">
-                      {alert.fingerprint}
+                    <Badge
+                      variant="secondary"
+                      className="text-xs font-mono"
+                      title={alert.fingerprint}
+                    >
+                      fingerprint: {alert.fingerprint.slice(0, 8)}
                     </Badge>
+                    {incident.labels?.instance && (
+                      <Badge variant="secondary" className="text-xs">
+                        instance: {incident.labels.instance}
+                      </Badge>
+                    )}
                   </div>
                 </li>
               ))}
