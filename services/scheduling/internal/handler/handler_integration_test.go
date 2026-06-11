@@ -103,7 +103,11 @@ func (m *memStore) ListOverridesInWindow(_ context.Context, _, scheduleID string
 func (m *memStore) CreateOverride(_ context.Context, o *domain.Override) error {
 	for _, existing := range m.overrides[o.ScheduleID] {
 		if o.StartAt.Before(existing.EndAt) && o.EndAt.After(existing.StartAt) {
-			return store.ErrConflict
+			return &store.OverrideConflictError{
+				UserID:  existing.UserID,
+				StartAt: existing.StartAt,
+				EndAt:   existing.EndAt,
+			}
 		}
 	}
 	o.ID = "ov-" + time.Now().Format("150405.000000")
@@ -342,9 +346,34 @@ func TestHandler_Override_Conflict(t *testing.T) {
 	// Overlapping override
 	resp2, _ := http.Post(srv.URL+"/api/schedules/v1/tenant-a/schedules/sched-1/overrides",
 		"application/json", bytes.NewBufferString(body))
-	resp2.Body.Close()
+	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
-		t.Errorf("overlapping override: expected 409, got %d", resp2.StatusCode)
+		t.Fatalf("overlapping override: expected 409, got %d", resp2.StatusCode)
+	}
+
+	var conflict struct {
+		Error         string `json:"error"`
+		ExistingStart string `json:"existing_start"`
+		ExistingEnd   string `json:"existing_end"`
+		ExistingUser  string `json:"existing_user"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&conflict); err != nil {
+		t.Fatalf("decode 409 body: %v", err)
+	}
+	if conflict.Error == "" {
+		t.Errorf("409 body missing error field")
+	}
+	if conflict.ExistingUser != "dave" {
+		t.Errorf("existing_user: got %q, want dave", conflict.ExistingUser)
+	}
+	if _, err := time.Parse(time.RFC3339, conflict.ExistingStart); err != nil {
+		t.Errorf("existing_start not RFC3339: %q (%v)", conflict.ExistingStart, err)
+	}
+	if _, err := time.Parse(time.RFC3339, conflict.ExistingEnd); err != nil {
+		t.Errorf("existing_end not RFC3339: %q (%v)", conflict.ExistingEnd, err)
+	}
+	if want := "2024-01-01T00:00:00Z"; conflict.ExistingStart != want {
+		t.Errorf("existing_start: got %q, want %q", conflict.ExistingStart, want)
 	}
 }
 

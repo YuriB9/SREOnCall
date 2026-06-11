@@ -114,8 +114,18 @@ func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
 	_ = msg.Ack(false)
 }
 
+// normalizeSource maps the legacy "prometheus" source to the canonical
+// "alertmanager" so grouping rules administered for "alertmanager" still match
+// messages produced in the old format and left in the queue before deploy.
+func normalizeSource(source string) string {
+	if source == "prometheus" {
+		return "alertmanager"
+	}
+	return source
+}
+
 func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantID string) error {
-	rule, err := c.store.GetGroupingRule(ctx, tenantID, string(alert.Source))
+	rule, err := c.store.GetGroupingRule(ctx, tenantID, normalizeSource(string(alert.Source)))
 	if err != nil {
 		return fmt.Errorf("get grouping rule: %w", err)
 	}

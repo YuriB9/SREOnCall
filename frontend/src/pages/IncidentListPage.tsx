@@ -34,15 +34,15 @@ const STATUS_CLASS: Record<IncidentStatus, string> = {
 const SEVERITY_LABEL: Record<IncidentSeverity, string> = {
   critical: 'Критический',
   high: 'Высокий',
-  medium: 'Средний',
-  low: 'Низкий',
+  warning: 'Предупреждение',
+  info: 'Инфо',
 }
 
 const SEVERITY_CLASS: Record<IncidentSeverity, string> = {
   critical: 'bg-destructive/10 text-destructive',
   high: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-  medium: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
-  low: 'bg-secondary text-secondary-foreground',
+  warning: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
+  info: 'bg-secondary text-secondary-foreground',
 }
 
 const STATUS_CHIP: Record<IncidentStatus, string> = {
@@ -206,8 +206,8 @@ export function IncidentListPage() {
           <option value="">Все критичности</option>
           <option value="critical">Критический</option>
           <option value="high">Высокий</option>
-          <option value="medium">Средний</option>
-          <option value="low">Низкий</option>
+          <option value="warning">Предупреждение</option>
+          <option value="info">Инфо</option>
         </select>
 
         <span className="ml-auto text-xs text-muted-foreground">

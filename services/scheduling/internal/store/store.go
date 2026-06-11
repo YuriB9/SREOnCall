@@ -15,6 +15,23 @@ import (
 var ErrNotFound = errors.New("not found")
 var ErrConflict = errors.New("conflict")
 
+// OverrideConflictError reports an overlapping override and carries the
+// conflicting override's window and user so the handler can return them in the
+// 409 body. It satisfies errors.Is(err, ErrConflict) for existing checks.
+type OverrideConflictError struct {
+	UserID  string
+	StartAt time.Time
+	EndAt   time.Time
+}
+
+func (e *OverrideConflictError) Error() string {
+	return "override window overlaps with existing override"
+}
+
+func (e *OverrideConflictError) Is(target error) bool {
+	return target == ErrConflict
+}
+
 type Store struct {
 	db *pgxpool.Pool
 }
@@ -167,17 +184,18 @@ func (s *Store) ListOverridesInWindow(ctx context.Context, tenantID, scheduleID 
 
 // CreateOverride inserts an override after checking for overlaps (returns ErrConflict on overlap).
 func (s *Store) CreateOverride(ctx context.Context, o *domain.Override) error {
-	var count int
+	conflict := &OverrideConflictError{}
 	err := s.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM scheduling.schedule_overrides
-		 WHERE schedule_id=$1 AND start_at < $2 AND end_at > $3`,
+		`SELECT user_id, start_at, end_at FROM scheduling.schedule_overrides
+		 WHERE schedule_id=$1 AND start_at < $2 AND end_at > $3
+		 ORDER BY start_at ASC LIMIT 1`,
 		o.ScheduleID, o.EndAt, o.StartAt,
-	).Scan(&count)
-	if err != nil {
-		return err
+	).Scan(&conflict.UserID, &conflict.StartAt, &conflict.EndAt)
+	if err == nil {
+		return conflict
 	}
-	if count > 0 {
-		return ErrConflict
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
 	}
 	return s.db.QueryRow(ctx,
 		`INSERT INTO scheduling.schedule_overrides (schedule_id, tenant_id, user_id, start_at, end_at)

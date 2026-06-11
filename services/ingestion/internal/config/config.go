@@ -24,7 +24,11 @@ func Load() Config {
 		RedisAddr: envOr("REDIS_ADDR", "localhost:6379"),
 		RedisPass: envOr("REDIS_PASSWORD", ""),
 		AMQPURL:   envOr("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
-		DedupTTL:  envDurSec("DEDUP_TTL_SECONDS", 4*time.Hour),
+		// DedupTTL default is 4h, matching a typical Alertmanager repeat_interval:
+		// repeated firing notifications of the same alert do not create bus/raw_alerts
+		// noise. A resolved alert clears the dedup key, so a real re-fire after resolve
+		// passes immediately and the long TTL does not delay new incidents.
+		DedupTTL: envDurSec("DEDUP_TTL_SECONDS", 4*time.Hour),
 	}
 }
 

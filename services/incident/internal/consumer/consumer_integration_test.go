@@ -143,7 +143,7 @@ func TestConsumer_FiringCreatesIncident(t *testing.T) {
 
 	alert := domain.Alert{
 		Fingerprint: "fp1",
-		Source:      domain.SourcePrometheus,
+		Source:      domain.SourceAlertmanager,
 		Severity:    domain.SeverityCritical,
 		Title:       "High CPU",
 		Labels:      map[string]string{"alertname": "HighCPU", "job": "api"},
@@ -163,6 +163,49 @@ func TestConsumer_FiringCreatesIncident(t *testing.T) {
 	} else if pub.created[0].TenantSlug != alert.TenantID {
 		t.Errorf("expected incident.created tenant_slug %q (alert tenant_id), got %q",
 			alert.TenantID, pub.created[0].TenantSlug)
+	}
+}
+
+// TestConsumer_LegacyPrometheusSourceUsesAlertmanagerRule verifies that an alert
+// carrying the legacy source "prometheus" (old-format messages left in the queue)
+// is grouped by the rule administered for "alertmanager", via the consumer's
+// source normalization alias.
+func TestConsumer_LegacyPrometheusSourceUsesAlertmanagerRule(t *testing.T) {
+	st := newMemStore()
+	pub := &capturePublisher{}
+	cons := consumer.New(st, pub, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	// Custom alertmanager rule grouping by "team" only — distinct from the
+	// prometheus default (alertname+job), so behavior diverges if the alias fails.
+	st.rules["tenant-am:alertmanager"] = &incdomain.GroupingRule{
+		TenantID:       "tenant-am",
+		Source:         "alertmanager",
+		GroupingLabels: []string{"team"},
+	}
+
+	mk := func(fp, alertname, job string) domain.Alert {
+		return domain.Alert{
+			Fingerprint: fp,
+			Source:      "prometheus", // legacy source value
+			Severity:    domain.SeverityWarning,
+			Title:       alertname,
+			Labels:      map[string]string{"alertname": alertname, "job": job, "team": "payments"},
+			Status:      domain.AlertStatusFiring,
+			TenantID:    "tenant-am",
+		}
+	}
+
+	if err := triggerHandle(cons, context.Background(), mk("amfp1", "HighCPU", "api")); err != nil {
+		t.Fatalf("first handle failed: %v", err)
+	}
+	// Different alertname/job but same team: groups only if the alertmanager
+	// "team" rule was applied to the prometheus-sourced alert.
+	if err := triggerHandle(cons, context.Background(), mk("amfp2", "HighMem", "worker")); err != nil {
+		t.Fatalf("second handle failed: %v", err)
+	}
+
+	if len(st.incidents) != 1 {
+		t.Errorf("expected 1 incident (grouped by alertmanager team rule), got %d", len(st.incidents))
 	}
 }
 
@@ -205,7 +248,7 @@ func TestConsumer_ResolvedClosesIncident(t *testing.T) {
 
 	firing := domain.Alert{
 		Fingerprint: "fp3",
-		Source:      domain.SourcePrometheus,
+		Source:      domain.SourceAlertmanager,
 		Title:       "To be resolved",
 		Labels:      map[string]string{"alertname": "Resolved", "job": "api"},
 		Status:      domain.AlertStatusFiring,
@@ -241,7 +284,7 @@ func TestConsumer_PartialResolveKeepsIncidentOpen(t *testing.T) {
 
 	alert1 := domain.Alert{
 		Fingerprint: "fp4a",
-		Source:      domain.SourcePrometheus,
+		Source:      domain.SourceAlertmanager,
 		Title:       "Alert 1",
 		Labels:      map[string]string{"alertname": "Partial", "job": "api"},
 		Status:      domain.AlertStatusFiring,

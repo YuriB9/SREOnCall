@@ -57,6 +57,8 @@
 
 Спека `alert-ingestion`: «настраиваемый TTL (по умолчанию 5 минут)». Код: `DEDUP_TTL_SECONDS` по умолчанию **4 часа** ([config.go:27](services/ingestion/internal/config/config.go#L27)). Поведение системы заметно отличается: повторный firing того же алерта будет подавляться часами. Нужно либо поправить спеку, либо дефолт.
 
+> **Статус:** исправлено изменением `fix-substantial-spec-code-gaps` — спека выровнена по коду (дефолт зафиксирован как 4 часа, rationale — `repeat_interval` Alertmanager).
+
 ### 4. Source алертов Alertmanager: `prometheus` вместо `alertmanager`
 
 Ingestion нормализует алерты Alertmanager с `source: "prometheus"` ([alertmanager.go:47](services/ingestion/internal/handler/alertmanager.go#L47), [alert.go](pkg/domain/alert.go)). При этом:
@@ -64,17 +66,25 @@ Ingestion нормализует алерты Alertmanager с `source: "promethe
 - правило, заданное администратором для `alertmanager`, **никогда не применится** к реальным алертам: consumer ищет правило по `source="prometheus"` ([consumer.go:118](services/incident/internal/consumer/consumer.go#L118)), а дефолты совпадают только потому, что `DefaultGroupingLabels` дублирует ветку `"alertmanager", "prometheus"` ([incident.go:84](services/incident/internal/domain/incident.go#L84));
 - вебхук-токены создаются с `source: alertmanager` — в списке алертов инцидента и в токенах фигурируют разные имена одного источника.
 
+> **Статус:** исправлено изменением `fix-substantial-spec-code-gaps` — `SourcePrometheus` → `SourceAlertmanager` (`alertmanager`), backfill-миграции historical `source`, алиас `prometheus → alertmanager` в consumer на переходный период.
+
 ### 5. Словарь severity: фронтенд ≠ бэкенд
 
 Бэкенд использует `critical | high | warning | info` ([alert.go](pkg/domain/alert.go), `mapSeverity` в [normalize.go:33-44](services/ingestion/internal/handler/normalize.go#L33-L44)). Фронтенд объявляет и фильтрует `critical | high | medium | low` ([types.ts:4](frontend/src/api/types.ts#L4), селектор в [IncidentListPage.tsx:206-211](frontend/src/pages/IncidentListPage.tsx#L206-L211)). Итог: фильтры «Средний»/«Низкий» никогда ничего не находят, а инциденты с severity `warning`/`info` отображаются без бейджа (undefined-классы). Спеки значений severity для UI не фиксируют — расхождение между компонентами, его стоит закрыть в спеке и коде.
+
+> **Статус:** исправлено изменением `fix-substantial-spec-code-gaps` — фронтенд приведён к словарю бэкенда `critical | high | warning | info`; спека `incident-dashboard-ui` фиксирует перечень.
 
 ### 6. Звуковые уведомления включены по умолчанию
 
 Спека `incident-dashboard-ui`: переключатель «по умолчанию выключенный». Код: `localStorage.getItem('oncall.audioEnabled') !== 'false'` — при отсутствии ключа звук **включён** ([useAudioEnabled.ts:5](frontend/src/hooks/useAudioEnabled.ts#L5)). Остальное (Web Audio, отсутствие звука при скрытой вкладке, персистентность) соответствует.
 
+> **Статус:** исправлено изменением `fix-substantial-spec-code-gaps` — инициализация заменена на `=== 'true'`, при отсутствии ключа звук выключен.
+
 ### 7. Ответ 409 при конфликте переопределений не содержит деталей
 
 Спека `oncall-schedule-ui`: встроенная ошибка «с описанием конфликтующего окна». Бэкенд возвращает `409 {"error": "override window overlaps..."}` без дат ([handler.go:358-360](services/scheduling/internal/handler/handler.go#L358-L360)), а фронтенд ожидает `existing_start/existing_end/existing_user` ([schedules.ts:34-47](frontend/src/api/schedules.ts#L34-L47)) и отрендерит «Invalid Date — Invalid Date (undefined)» ([CreateOverrideModal.tsx:45-49](frontend/src/pages/CreateOverrideModal.tsx#L45-L49)). Сама inline-ошибка в модальном окне есть; не хватает контракта данных.
+
+> **Статус:** исправлено изменением `fix-substantial-spec-code-gaps` — `CreateOverride` возвращает конфликтующее окно, handler сериализует `existing_start/existing_end/existing_user` (RFC3339); спека `oncall-scheduling` фиксирует формат тела 409.
 
 ---
 

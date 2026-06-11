@@ -29,8 +29,8 @@ func TestNormalizeAlertmanager_Firing(t *testing.T) {
 	}
 
 	a := alerts[0]
-	if a.Source != domain.SourcePrometheus {
-		t.Errorf("source: got %q, want %q", a.Source, domain.SourcePrometheus)
+	if a.Source != domain.SourceAlertmanager {
+		t.Errorf("source: got %q, want %q", a.Source, domain.SourceAlertmanager)
 	}
 	if a.Severity != domain.SeverityCritical {
 		t.Errorf("severity: got %q, want %q", a.Severity, domain.SeverityCritical)

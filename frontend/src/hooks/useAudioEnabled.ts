@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 
 export function useAudioEnabled() {
   const [enabled, setEnabled] = useState(
-    () => localStorage.getItem('oncall.audioEnabled') !== 'false',
+    () => localStorage.getItem('oncall.audioEnabled') === 'true',
   )
 
   const set = useCallback((value: boolean) => {

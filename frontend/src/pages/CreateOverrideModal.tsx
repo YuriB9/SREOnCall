@@ -44,8 +44,10 @@ export function CreateOverrideModal({
         onError: (err) => {
           if (err instanceof OverrideConflictError) {
             const d = err.detail
+            const member = members.find((m) => m.user_id === d.existing_user)
+            const who = member ? `@${member.preferred_username}` : d.existing_user
             setConflictError(
-              `Конфликт с существующей заменой: ${format(new Date(d.existing_start), 'dd.MM HH:mm')} — ${format(new Date(d.existing_end), 'dd.MM HH:mm')} (${d.existing_user})`,
+              `Конфликт с существующей заменой: ${format(new Date(d.existing_start), 'dd.MM HH:mm')} — ${format(new Date(d.existing_end), 'dd.MM HH:mm')} (${who})`,
             )
           } else {
             setConflictError('Не удалось создать замену')

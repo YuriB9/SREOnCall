@@ -44,7 +44,7 @@ func NormalizeAlertmanager(body []byte, tenantID string, receivedAt time.Time) (
 			title = a.Labels["alertname"]
 		}
 		alert := domain.Alert{
-			Source:      domain.SourcePrometheus,
+			Source:      domain.SourceAlertmanager,
 			Severity:    mapSeverity(a.Labels["severity"]),
 			Title:       title,
 			Description: a.Annotations["description"],

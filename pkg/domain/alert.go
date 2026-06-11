@@ -5,8 +5,8 @@ import "time"
 type AlertSource string
 
 const (
-	SourcePrometheus AlertSource = "prometheus"
-	SourceGrafana    AlertSource = "grafana"
+	SourceAlertmanager AlertSource = "alertmanager"
+	SourceGrafana      AlertSource = "grafana"
 )
 
 type AlertSeverity string

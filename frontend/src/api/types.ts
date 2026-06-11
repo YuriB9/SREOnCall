@@ -1,7 +1,7 @@
 // ─── Incidents ───────────────────────────────────────────────────────────────
 
 export type IncidentStatus = 'open' | 'acknowledged' | 'resolved'
-export type IncidentSeverity = 'critical' | 'high' | 'medium' | 'low'
+export type IncidentSeverity = 'critical' | 'high' | 'warning' | 'info'
 
 export interface Incident {
   id: string

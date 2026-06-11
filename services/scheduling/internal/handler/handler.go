@@ -355,10 +355,17 @@ func (h *Handler) CreateOverride(w http.ResponseWriter, r *http.Request) {
 		StartAt:    startAt,
 		EndAt:      endAt,
 	}
-	if err := h.store.CreateOverride(r.Context(), o); errors.Is(err, store.ErrConflict) {
-		writeError(w, http.StatusConflict, "override window overlaps with existing override")
-		return
-	} else if err != nil {
+	if err := h.store.CreateOverride(r.Context(), o); err != nil {
+		var conflict *store.OverrideConflictError
+		if errors.As(err, &conflict) {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":          "override window overlaps with existing override",
+				"existing_start": conflict.StartAt.Format(time.RFC3339),
+				"existing_end":   conflict.EndAt.Format(time.RFC3339),
+				"existing_user":  conflict.UserID,
+			})
+			return
+		}
 		h.logger.Error("create override", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
