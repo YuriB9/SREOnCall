@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/secrets/**)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)"
+    ],
+    "allow": [
+      "Bash(./scripts/dev-up.sh:*)",
+      "Bash(go test -run:*)",
+      "Bash(go test -bench:*)",
+      "Bash(go test -race:*)",
+      "Bash(dlv:*)",
+      "Bash(make:*)"
+    ]
+  }
+}

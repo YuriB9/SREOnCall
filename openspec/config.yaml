@@ -1,20 +1,66 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context — shown to AI when creating artifacts.
+context: |
+  Проект: SRE OnCall — мультитенантная платформа дежурств и управления инцидентами
+  (приём алертов, инциденты, расписания дежурств, эскалации, уведомления).
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Архитектура: 5 Go-микросервисов (Go 1.26, go.work) + SPA-фронтенд:
+  - services/ingestion — приём вебхуков Alertmanager/Grafana, нормализация,
+    дедупликация (Redis SETNX), публикация в RabbitMQ (exchange alerts).
+  - services/incident — создание инцидентов из алертов (очередь alerts.incident),
+    группировка по лейблам, жизненный цикл open→acknowledged→resolved,
+    комментарии/лейблы/история, события incident.created|updated.
+  - services/scheduling — тенанты, расписания/ротации/переопределения, вычисление
+    дежурного, вебхук-токены (SHA-256 + Redis-индекс oncall:tokens:{hash}),
+    per-tenant конфигурация уведомлений, участники через Keycloak Admin API.
+  - services/escalation — политики эскалации, авто-назначение по incident.created,
+    монитор таймаутов, события escalation.triggered|exhausted.
+  - services/notification — потребление событий эскалации, Email (SMTP) и
+    Mattermost (входящий вебхук), rate-limit (Redis token bucket), журнал доставки.
+  - pkg/ — общие модули: amqp (топология, publisher с ретраями), auth (JWT/JWKS +
+    X-Admin-Key, RequireTenantMember/Admin), domain, db, redis, logger, metrics, migrate.
+
+  Стек бэкенда: Go + chi, PostgreSQL (pgx, схема на сервис, миграции golang-migrate
+  при старте), Redis, RabbitMQ (topic exchanges), Prometheus-метрики, slog.
+  Стек фронтенда: React 19 + TypeScript + Vite, TailwindCSS 4, TanStack Query,
+  react-router-dom 7, oidc-client-ts (Keycloak, PKCE, токен в sessionStorage).
+  Деплой: docker-compose для локалки, deploy/k8s для кластера. E2E-тесты в tests/e2e.
+
+  Доменные соглашения:
+  - Мультитенантность: tenant slug в URL (/api/<svc>/v1/{tenant}/...); членство и
+    роли — из Keycloak-групп (/{slug} → member, /{slug}/admins → admin); в
+    событийном конвейере tenant_id == slug.
+  - Межсервисная аутентификация — заголовок X-Admin-Key (k8s Secret);
+    пользовательская — Bearer JWT (Keycloak).
+  - Сервисы общаются асинхронно через RabbitMQ; синхронные вызовы — только
+    escalation→scheduling/incident и notification→scheduling, всегда с X-Admin-Key.
+  - Секреты (mattermost_webhook_url, вебхук-токены) не возвращаются пользователям
+    в открытом виде: маскирование/однократный показ.
+  - API-ошибки: JSON {"error": ...}; 422 для ошибок валидации, 409 для конфликтов,
+    404 для чужого тенанта.
+  - Интеграционные тесты Go используют реальные Postgres/Redis (docker-compose);
+    UI-тексты на русском языке.
+
+  Спецификации в openspec/specs/ ведутся на русском (ДОЛЖЕН/SHALL, сценарии
+  WHEN/THEN). Сверка спека↔код: docs/spec-vs-code-audit.md.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Писать на русском языке
+    - Указывать затронутые сервисы и события RabbitMQ в разделе Impact
+    - Помечать breaking-изменения API/событий как **BREAKING**
+  specs:
+    - Писать на русском языке в стиле существующих спек (ДОЛЖЕН/SHALL, НЕ ДОЛЖНО)
+    - Для MODIFIED копировать требование целиком из openspec/specs/<capability>/spec.md
+    - Каждое требование сопровождать хотя бы одним сценарием WHEN/THEN (#### Scenario)
+  design:
+    - Писать на русском языке
+    - Для изменений событий/схем БД описывать совместимость при деплое и план миграции
+    - Фиксировать отклонённые альтернативы с причиной
+  tasks:
+    - Писать на русском языке
+    - Группировать задачи по сервисам; миграции БД и обновление тестов — отдельными пунктами
+    - Завершать группой верификации (go build/test, typecheck фронтенда, сквозная проверка)
+    - Последним пунктом обновлять docs/spec-vs-code-audit.md, если изменение закрывает пункт аудита
