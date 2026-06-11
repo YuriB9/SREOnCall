@@ -141,10 +141,6 @@ func main() {
 			r.Delete("/schedules/{scheduleId}/overrides/{overrideId}", h.DeleteOverride)
 
 			r.Get("/schedules/{scheduleId}/shifts", h.ListShifts)
-
-			// Legacy notification-config path (kept for backwards compat with old clients)
-			r.Get("/notification-config", h.GetNotificationConfig)
-			r.Put("/notification-config", h.PutNotificationConfig)
 		})
 	})
 

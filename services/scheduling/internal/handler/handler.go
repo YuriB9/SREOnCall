@@ -433,35 +433,6 @@ func (h *Handler) ListShifts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, shifts)
 }
 
-// ── Notification config ───────────────────────────────────────────────────────
-
-func (h *Handler) GetNotificationConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := h.store.GetNotificationConfig(r.Context(), tenantSlug(r))
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, cfg)
-}
-
-func (h *Handler) PutNotificationConfig(w http.ResponseWriter, r *http.Request) {
-	var body store.NotificationConfig
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	body.TenantID = tenantSlug(r)
-	if err := h.store.UpsertNotificationConfig(r.Context(), &body); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, body)
-}
-
 // ── Tenants ───────────────────────────────────────────────────────────────────
 
 func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {

@@ -222,8 +222,6 @@ func newTestRouter(h *handler.Handler) http.Handler {
 		r.Post("/schedules/{scheduleId}/overrides", h.CreateOverride)
 		r.Delete("/schedules/{scheduleId}/overrides/{overrideId}", h.DeleteOverride)
 		r.Get("/schedules/{scheduleId}/shifts", h.ListShifts)
-		r.Get("/notification-config", h.GetNotificationConfig)
-		r.Put("/notification-config", h.PutNotificationConfig)
 	})
 	return r
 }
@@ -376,11 +374,11 @@ func TestHandler_ListShifts(t *testing.T) {
 }
 
 func TestHandler_NotificationConfig(t *testing.T) {
-	srv, _ := newSrv(t)
+	srv, _ := newTenantSrv(t)
 	defer srv.Close()
 
 	body := `{"mattermost_webhook_url":"https://mm.example.com/hook","mattermost_channel":"oncall","smtp_from":"oncall@example.com"}`
-	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/schedules/v1/tenant-a/notification-config", bytes.NewBufferString(body))
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(req)
 	resp.Body.Close()
@@ -388,15 +386,15 @@ func TestHandler_NotificationConfig(t *testing.T) {
 		t.Fatalf("PUT notification-config: expected 200, got %d", resp.StatusCode)
 	}
 
-	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenant-a/notification-config")
+	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/tenant-a/notification-config")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("GET notification-config: expected 200, got %d", resp2.StatusCode)
 	}
-	var cfg store.NotificationConfig
+	var cfg map[string]string
 	_ = json.NewDecoder(resp2.Body).Decode(&cfg)
-	if cfg.MattermostChannel != "oncall" {
-		t.Errorf("expected mattermost_channel=oncall, got %q", cfg.MattermostChannel)
+	if cfg["mattermost_channel"] != "oncall" {
+		t.Errorf("expected mattermost_channel=oncall, got %q", cfg["mattermost_channel"])
 	}
 }
 
