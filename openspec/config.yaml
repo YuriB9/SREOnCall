@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: spec-driven-with-adr
 
 # Project context — shown to AI when creating artifacts.
 context: |
@@ -55,6 +55,14 @@ rules:
     - Писать на русском языке в стиле существующих спек (ДОЛЖЕН/SHALL, НЕ ДОЛЖНО)
     - Для MODIFIED копировать требование целиком из openspec/specs/<capability>/spec.md
     - Каждое требование сопровождать хотя бы одним сценарием WHEN/THEN (#### Scenario)
+  adr:
+    - Писать на русском языке
+    - Создавать ADR только для значимых архитектурных решений (транспорт/RabbitMQ,
+      хранилище/pgx-Postgres-Redis, auth/Keycloak-JWKS, раскладка go.work,
+      границы сервисов, версионирование событий); для рутинных изменений — пропускать
+    - Файл класть в docs/adr/NNNN-kebab-title.md вне openspec/, один ADR на решение
+    - Датировать реальной датой решения; в поле Change указывать имя текущего change
+    - Отменённое решение помечать Superseded by ADR-XXXX, не удаляя старый ADR
   design:
     - Писать на русском языке
     - Для изменений событий/схем БД описывать совместимость при деплое и план миграции
