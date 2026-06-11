@@ -1,0 +1,1 @@
+-- No-op: the backfill only corrects empty values; reverting would lose data.

@@ -131,9 +131,12 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 	if incidentID == "" {
 		inc := &incdomain.Incident{
 			TenantID: tenantID,
-			Title:    alert.Title,
-			Severity: string(alert.Severity),
-			Status:   incdomain.StatusOpen,
+			// In the event pipeline tenant_id is the tenant slug: the webhook
+			// token index in Redis stores the slug (tokenindex.Set(hash, slug)).
+			TenantSlug: tenantID,
+			Title:      alert.Title,
+			Severity:   string(alert.Severity),
+			Status:     incdomain.StatusOpen,
 		}
 		if err := c.store.CreateIncident(ctx, inc); err != nil {
 			return fmt.Errorf("create incident: %w", err)

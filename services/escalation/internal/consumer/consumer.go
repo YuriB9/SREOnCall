@@ -71,6 +71,11 @@ func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
 
 	switch env.Type {
 	case pkgamqp.RoutingKeyIncidentCreated:
+		// Events from older incident versions may carry an empty tenant_slug;
+		// in the event pipeline tenant_id is the slug (same as handler.AttachPolicy).
+		if payload.TenantSlug == "" {
+			payload.TenantSlug = payload.TenantID
+		}
 		inc := escalator.IncidentInfo{Title: payload.Title, Severity: payload.Severity, Status: payload.Status}
 		if err := c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID, inc); err != nil {
 			c.logger.Error("consumer: auto assign failed",
@@ -103,6 +108,11 @@ func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
 	}
 	switch env.Type {
 	case pkgamqp.RoutingKeyIncidentCreated:
+		// Events from older incident versions may carry an empty tenant_slug;
+		// in the event pipeline tenant_id is the slug (same as handler.AttachPolicy).
+		if payload.TenantSlug == "" {
+			payload.TenantSlug = payload.TenantID
+		}
 		return c.escalate.AutoAssign(ctx, payload.TenantID, payload.TenantSlug, payload.IncidentID,
 			escalator.IncidentInfo{Title: payload.Title, Severity: payload.Severity, Status: payload.Status})
 	case pkgamqp.RoutingKeyIncidentUpdated:

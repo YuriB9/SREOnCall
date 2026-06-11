@@ -160,6 +160,9 @@ func TestConsumer_FiringCreatesIncident(t *testing.T) {
 	}
 	if len(pub.created) != 1 {
 		t.Errorf("expected 1 published created event, got %d", len(pub.created))
+	} else if pub.created[0].TenantSlug != alert.TenantID {
+		t.Errorf("expected incident.created tenant_slug %q (alert tenant_id), got %q",
+			alert.TenantID, pub.created[0].TenantSlug)
 	}
 }
 
@@ -225,6 +228,9 @@ func TestConsumer_ResolvedClosesIncident(t *testing.T) {
 	}
 	if len(pub.updated) != 1 {
 		t.Errorf("expected 1 incident.updated event, got %d", len(pub.updated))
+	} else if pub.updated[0].TenantSlug != firing.TenantID {
+		t.Errorf("expected incident.updated tenant_slug %q (alert tenant_id), got %q",
+			firing.TenantID, pub.updated[0].TenantSlug)
 	}
 }
 

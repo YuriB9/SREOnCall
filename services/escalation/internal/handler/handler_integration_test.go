@@ -182,7 +182,7 @@ func newSrv(t *testing.T) (*httptest.Server, *memStore, *noopPub) {
 	st := newMemStore()
 	pub := &noopPub{}
 	esc := escalator.New(st, noopSched{}, pub, slog.New(slog.NewTextHandler(os.Stdout, nil)))
-	h := handler.New(st, esc, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	h := handler.New(st, esc, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 	r := chi.NewRouter()
 	r.Route("/api/escalations/v1/{tenant}", func(r chi.Router) {
