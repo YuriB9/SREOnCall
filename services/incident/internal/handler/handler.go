@@ -318,8 +318,17 @@ func (h *Handler) AddComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.store.GetIncident(r.Context(), tenantID, id); errors.Is(err, store.ErrNotFound) {
+	inc, err := h.store.GetIncident(r.Context(), tenantID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if inc.Status == incdomain.StatusResolved {
+		http.Error(w, "cannot comment on a resolved incident", http.StatusConflict)
 		return
 	}
 

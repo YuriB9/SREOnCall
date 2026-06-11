@@ -199,11 +199,13 @@ export function IncidentDetailPanel({ tenant, incidentId, onClose }: Props) {
                       {entry.author && (
                         <p className="text-xs text-muted-foreground">{entry.author}</p>
                       )}
-                      {entry.old_value !== undefined && entry.new_value !== undefined && (
-                        <p className="text-xs text-muted-foreground">
-                          {entry.old_value || '—'} → {entry.new_value}
-                        </p>
-                      )}
+                      {entry.kind !== 'comment_added' &&
+                        entry.old_value !== undefined &&
+                        entry.new_value !== undefined && (
+                          <p className="text-xs text-muted-foreground">
+                            {entry.old_value || '—'} → {entry.new_value}
+                          </p>
+                        )}
                       <p className="mt-0.5 text-xs text-muted-foreground/60">
                         {format(new Date(entry.occurred_at), 'dd.MM HH:mm')}
                       </p>
@@ -239,27 +241,33 @@ export function IncidentDetailPanel({ tenant, incidentId, onClose }: Props) {
               </div>
             )}
           </div>
-          <div className="flex shrink-0 gap-2 border-t p-3">
-            <textarea
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmitComment()
-              }}
-              placeholder="Комментарий... (Ctrl+Enter)"
-              rows={2}
-              className="flex-1 resize-none rounded-md border bg-transparent p-2 text-xs outline-none focus:ring-1 focus:ring-ring"
-            />
-            <Button
-              size="icon"
-              variant="outline"
-              disabled={!commentText.trim() || postComment.isPending}
-              onClick={handleSubmitComment}
-              aria-label="Отправить"
-            >
-              <Send size={14} />
-            </Button>
-          </div>
+          {isResolved ? (
+            <p className="shrink-0 border-t p-3 text-center text-xs text-muted-foreground">
+              Инцидент закрыт — комментарии недоступны
+            </p>
+          ) : (
+            <div className="flex shrink-0 gap-2 border-t p-3">
+              <textarea
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleSubmitComment()
+                }}
+                placeholder="Комментарий... (Ctrl+Enter)"
+                rows={2}
+                className="flex-1 resize-none rounded-md border bg-transparent p-2 text-xs outline-none focus:ring-1 focus:ring-ring"
+              />
+              <Button
+                size="icon"
+                variant="outline"
+                disabled={!commentText.trim() || postComment.isPending}
+                onClick={handleSubmitComment}
+                aria-label="Отправить"
+              >
+                <Send size={14} />
+              </Button>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>

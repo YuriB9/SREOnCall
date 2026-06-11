@@ -144,6 +144,8 @@ function usePatchIncidentStatus(tenant: string, status: IncidentStatus) {
               }
             : old,
       )
+      // A status change appends a history entry server-side — refresh the tab.
+      qc.invalidateQueries({ queryKey: incidentKeys(tenant).history(id) })
     },
   })
 }
