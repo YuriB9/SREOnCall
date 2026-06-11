@@ -35,6 +35,8 @@
 
 Сервис escalation ДОЛЖЕН (SHALL) хранить `default_policy_id` per-tenant и автоматически назначать политику при появлении нового инцидента. Текущая политика по умолчанию ДОЛЖНА быть доступна через GET `/api/escalations/v1/{tenant}/default-policy`.
 
+При потреблении события `incident.created` с пустым `tenant_slug` (событие от старой версии incident-сервиса) сервис ДОЛЖЕН использовать `tenant_id` события в качестве slug'а тенанта — состояние эскалации НЕ ДОЛЖНО сохраняться с пустым `tenant_slug`, поскольку slug используется для резолва дежурного в scheduling и попадает в события `escalation.triggered`.
+
 #### Scenario: Установка политики по умолчанию
 
 - **WHEN** администратор выполняет PUT на `/api/escalations/v1/{tenant}/default-policy` с `{ "policy_id": "<uuid>" }`
@@ -55,6 +57,11 @@
 - **WHEN** сервис escalation потребляет событие `incident.created` из очереди `incidents.escalation`
 - **AND** для тенанта инцидента задана политика по умолчанию
 - **THEN** политика автоматически привязывается к инциденту, отслеживание стартует с 1-го уровня, и событие `escalation.triggered` для tier 1 публикуется немедленно (первичное оповещение дежурного)
+
+#### Scenario: Fallback при пустом tenant_slug в событии
+
+- **WHEN** сервис escalation потребляет событие `incident.created` с пустым `tenant_slug` и непустым `tenant_id`
+- **THEN** состояние эскалации сохраняется с `tenant_slug`, равным `tenant_id`; резолв дежурного выполняется по этому slug'у, и `escalation.triggered` публикуется с непустым `tenant_slug`
 
 #### Scenario: Тенант без политики по умолчанию
 
