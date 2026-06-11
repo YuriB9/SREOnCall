@@ -91,8 +91,13 @@ export function useIncidentComments(tenant: string, id: string) {
 function usePatchIncidentStatus(tenant: string, status: IncidentStatus) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) =>
-      apiClient.patch(`/incidents/v1/${tenant}/incidents/${id}`, { status }),
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.patch<Incident>(
+        `/incidents/v1/${tenant}/incidents/${id}`,
+        { status },
+      )
+      return data
+    },
 
     onMutate: async (id: string) => {
       await qc.cancelQueries({ queryKey: incidentKeys(tenant).all })
@@ -104,7 +109,7 @@ function usePatchIncidentStatus(tenant: string, status: IncidentStatus) {
       qc.setQueriesData<IncidentListResponse>(
         { queryKey: incidentKeys(tenant).all },
         (old) =>
-          old
+          old && Array.isArray(old.incidents)
             ? {
                 ...old,
                 incidents: old.incidents.map((inc) =>
@@ -123,8 +128,22 @@ function usePatchIncidentStatus(tenant: string, status: IncidentStatus) {
       qc.invalidateQueries({ queryKey: incidentKeys(tenant).all })
     },
 
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: incidentKeys(tenant).detail(id) })
+    onSuccess: (updated, id) => {
+      // Write the server response (with acknowledged_by/resolved_at filled in)
+      // into both caches so the UI reflects it immediately, without a refetch.
+      qc.setQueryData<Incident>(incidentKeys(tenant).detail(id), updated)
+      qc.setQueriesData<IncidentListResponse>(
+        { queryKey: incidentKeys(tenant).all },
+        (old) =>
+          old && Array.isArray(old.incidents)
+            ? {
+                ...old,
+                incidents: old.incidents.map((inc) =>
+                  inc.id === id ? updated : inc,
+                ),
+              }
+            : old,
+      )
     },
   })
 }

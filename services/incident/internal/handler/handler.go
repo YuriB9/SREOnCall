@@ -68,7 +68,14 @@ func incidentID(r *http.Request) string { return chi.URLParam(r, "incidentId") }
 
 func callerID(r *http.Request) string {
 	if c, ok := auth.FromContext(r.Context()); ok {
-		return c.Sub
+		switch {
+		case c.PreferredUsername != "":
+			return c.PreferredUsername
+		case c.Name != "":
+			return c.Name
+		default:
+			return c.Sub
+		}
 	}
 	return "system"
 }
