@@ -159,7 +159,6 @@ export function IncidentListPage() {
         resolve.mutate(selectedId, { onError: () => showToast('Не удалось закрыть инцидент') })
       }
     },
-    '/': () => {},
     j: navDown,
     J: navDown,
     k: navUp,

@@ -113,7 +113,11 @@ func (n *Notifier) NotifyTriggered(ctx context.Context, ev TriggeredEvent) error
 		} else if err != nil {
 			return fmt.Errorf("notifier: get contact: %w", err)
 		} else {
-			cfg, _ := n.cache.Get(ctx, ev.TenantSlug)
+			cfg, err := n.cache.Get(ctx, ev.TenantSlug)
+			if err != nil {
+				n.logger.Error("tenant notification config fetch failed; continuing with fallbacks",
+					"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID, "err", err)
+			}
 			n.dispatchToContact(ctx, ev, contact, cfg)
 		}
 	}

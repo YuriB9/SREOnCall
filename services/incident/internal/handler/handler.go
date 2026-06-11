@@ -397,9 +397,18 @@ func (h *Handler) ListGroupingRules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, rules)
 }
 
+// validGroupingSources is the platform-wide source dictionary; grouping rules
+// may only be configured for these sources (mirrors webhook-token validation).
+var validGroupingSources = map[string]bool{"alertmanager": true, "grafana": true}
+
 func (h *Handler) PutGroupingRule(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenant_id")
 	src := chi.URLParam(r, "source")
+
+	if !validGroupingSources[src] {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "source must be alertmanager or grafana"})
+		return
+	}
 
 	var body struct {
 		GroupingLabels []string `json:"grouping_labels"`
@@ -420,6 +429,11 @@ func (h *Handler) PutGroupingRule(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteGroupingRule(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenant_id")
 	src := chi.URLParam(r, "source")
+
+	if !validGroupingSources[src] {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "source must be alertmanager or grafana"})
+		return
+	}
 
 	if err := h.store.DeleteGroupingRule(r.Context(), tenantID, src); err != nil {
 		h.logger.Error("delete grouping rule", "err", err)

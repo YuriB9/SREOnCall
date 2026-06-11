@@ -422,3 +422,44 @@ func TestHandler_ListGroupingRules(t *testing.T) {
 		t.Errorf("expected 2 grouping rules, got %d", len(rules))
 	}
 }
+
+func TestHandler_PutGroupingRule_InvalidSource(t *testing.T) {
+	st := newMemHandler()
+	h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(newTestRouter(h))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodPut,
+		srv.URL+"/api/incidents/v1/tenant-a/grouping-rules/zabbix",
+		bytes.NewBufferString(`{"grouping_labels":["alertname"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("PUT zabbix: expected 422, got %d", resp.StatusCode)
+	}
+	if _, ok := st.rules["tenant-a:zabbix"]; ok {
+		t.Errorf("invalid-source rule must not be stored")
+	}
+}
+
+func TestHandler_DeleteGroupingRule_InvalidSource(t *testing.T) {
+	st := newMemHandler()
+	h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(newTestRouter(h))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodDelete,
+		srv.URL+"/api/incidents/v1/tenant-a/grouping-rules/zabbix", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("DELETE zabbix: expected 422, got %d", resp.StatusCode)
+	}
+}

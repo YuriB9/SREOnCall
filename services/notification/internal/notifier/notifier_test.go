@@ -123,6 +123,37 @@ func TestNotifyTriggered_EmailChannel(t *testing.T) {
 	}
 }
 
+func TestNotifyTriggered_ConfigCacheError_EmailStillDelivered(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID:          "alice",
+		TenantID:        "tenant-a",
+		Email:           "alice@example.com",
+		EnabledChannels: []string{domain.ChannelEmail},
+	}
+	email := &stubEmail{}
+	// Cache returns an error fetching the per-tenant config; delivery must
+	// continue with the global smtp_from fallback (cfg == nil).
+	cache := &stubCache{err: errors.New("cache unavailable")}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, &stubMattermost{})
+
+	if err := n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+		IncidentID:   "inc-1",
+		TenantID:     "tenant-a",
+		TenantSlug:   "team-a",
+		Tier:         1,
+		OncallUserID: "alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 1 {
+		t.Errorf("expected 1 email despite config cache error, got %d", len(email.calls))
+	}
+	if len(st.logs) != 1 || st.logs[0].Status != domain.StatusDelivered {
+		t.Errorf("expected delivered log despite config cache error, got %v", st.logs)
+	}
+}
+
 func TestNotifyTriggered_RateLimited(t *testing.T) {
 	st := newMemStore()
 	st.contacts["tenant-a:bob"] = &domain.UserContact{

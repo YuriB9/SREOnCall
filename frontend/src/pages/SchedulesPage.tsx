@@ -329,6 +329,29 @@ export function SchedulesPage() {
     windows[s.id] = Array.isArray(d) ? d : []
   })
 
+  // Separate [today, today+7d] window for the mobile "Ближайшие 7 дней" list,
+  // independent of the displayed Gantt month — otherwise shifts spilling into
+  // the next month are lost at the month boundary (task 13).
+  const upcomingFrom = startOfDay(new Date()).toISOString()
+  const upcomingTo = addDays(startOfDay(new Date()), 7).toISOString()
+  const upcomingResults = useQueries({
+    queries: schedules.map((s) => ({
+      queryKey: scheduleKeys(t).window(s.id, upcomingFrom, upcomingTo),
+      queryFn: async () => {
+        const { data } = await apiClient.get<ShiftWindow[]>(
+          `/schedules/v1/${t}/schedules/${s.id}/shifts`,
+          { params: { from: upcomingFrom, to: upcomingTo } },
+        )
+        return data
+      },
+    })),
+  })
+  const upcomingWindows: Record<string, ShiftWindow[]> = {}
+  schedules.forEach((s, i) => {
+    const d = upcomingResults[i]?.data
+    upcomingWindows[s.id] = Array.isArray(d) ? d : []
+  })
+
   // user_id → display label for Gantt bars.
   // Primary source: Keycloak members for this tenant (useMembers).
   // Supplement: oncall-now results — each includes the currently on-call user's username.
@@ -410,7 +433,7 @@ export function SchedulesPage() {
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Ближайшие 7 дней
         </h2>
-        <UpcomingShiftsList schedules={schedules} windows={windows} userMap={userMap} />
+        <UpcomingShiftsList schedules={schedules} windows={upcomingWindows} userMap={userMap} />
       </div>
 
       {/* CreateOverrideModal (task 6.7, 6.8) */}
