@@ -118,6 +118,23 @@ export interface EscalationState {
   status: EscalationStatus
 }
 
+export type EscalationHistoryEventType =
+  | 'triggered'
+  | 'tier_advanced'
+  | 'acknowledged'
+  | 'resolved'
+  | 'exhausted'
+
+export interface EscalationHistoryEntry {
+  id: string
+  incident_id: string
+  event_type: EscalationHistoryEventType
+  tier?: number
+  oncall_user_id?: string
+  oncall_username?: string
+  created_at?: string
+}
+
 export interface TenantEscalationConfig {
   tenant_id: string
   default_policy_id: string | null

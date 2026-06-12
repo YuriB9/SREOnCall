@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from './client'
 import type {
+  EscalationHistoryEntry,
   EscalationPolicy,
   EscalationState,
   PolicyTier,
@@ -16,6 +17,8 @@ export function escalationKeys(tenant: string) {
     list: () => [tenant, 'escalations', 'list'] as const,
     defaultPolicy: () => [tenant, 'escalations', 'default'] as const,
     states: (ids: string[]) => [tenant, 'escalations', 'states', ids] as const,
+    history: (incidentId: string) =>
+      [tenant, 'escalations', 'history', incidentId] as const,
   }
 }
 
@@ -42,6 +45,27 @@ export function useEscalationStates(tenant: string, incidentIds: string[]) {
         return map
       } catch {
         return new Map<string, EscalationState>()
+      }
+    },
+  })
+}
+
+// Fetches the escalation history (level triggers, advances, stops) for a single
+// incident. Disabled until an incidentId is provided and degrades gracefully to
+// an empty array if the escalation service errors, so the history tab keeps
+// rendering the incident journal when escalation is unavailable.
+export function useEscalationHistory(tenant: string, incidentId: string) {
+  return useQuery({
+    queryKey: escalationKeys(tenant).history(incidentId),
+    enabled: Boolean(incidentId),
+    queryFn: async () => {
+      try {
+        const { data } = await apiClient.get<EscalationHistoryEntry[]>(
+          `/escalations/v1/${tenant}/incidents/${incidentId}/history`,
+        )
+        return Array.isArray(data) ? data : []
+      } catch {
+        return [] as EscalationHistoryEntry[]
       }
     },
   })
