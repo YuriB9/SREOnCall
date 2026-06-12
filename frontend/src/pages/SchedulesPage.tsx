@@ -9,7 +9,7 @@ import {
   startOfMonth,
 } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { ChevronLeft, ChevronRight, Plus, User } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Plus, Trash2, User } from 'lucide-react'
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 
@@ -20,7 +20,8 @@ import type { OnCallNow, Schedule, ShiftWindow } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-import { CreateOverrideModal } from './CreateOverrideModal'
+import { DeleteScheduleModal } from './DeleteScheduleModal'
+import { ScheduleFormModal } from './ScheduleFormModal'
 
 // ── Color palette for shift bars (deterministic per user_id) ─────────────────
 
@@ -69,9 +70,17 @@ interface OnCallCardProps {
   schedule: Schedule
   oncall: OnCallNow | null | undefined
   isLoading: boolean
+  userMap: Record<string, string>
 }
 
-function OnCallCard({ schedule, oncall, isLoading }: OnCallCardProps) {
+function OnCallCard({ schedule, oncall, isLoading, userMap }: OnCallCardProps) {
+  // Prefer the Keycloak member name; fall back to the oncall-provided username
+  // only when it's not a raw uid (the backend returns the uid when it can't
+  // resolve a profile).
+  const label = oncall
+    ? (userMap[oncall.user_id] ??
+      (oncall.username !== oncall.user_id ? oncall.username : oncall.user_id.slice(0, 8)))
+    : ''
   return (
     <div className="flex min-w-48 flex-col gap-1.5 rounded-lg border p-3">
       <p className="text-xs font-medium text-muted-foreground">{schedule.name}</p>
@@ -84,7 +93,7 @@ function OnCallCard({ schedule, oncall, isLoading }: OnCallCardProps) {
       ) : (
         <div className="flex items-center gap-1.5">
           <User size={13} className="shrink-0 text-muted-foreground" />
-          <span className="text-sm font-medium">{oncall.username}</span>
+          <span className="text-sm font-medium">{label}</span>
         </div>
       )}
     </div>
@@ -98,10 +107,18 @@ interface GanttGridProps {
   windows: Record<string, ShiftWindow[]>
   monthStart: Date
   userMap: Record<string, string>
-  onCreateOverride: (scheduleId: string) => void
+  onEditSchedule: (schedule: Schedule) => void
+  onDeleteSchedule: (schedule: Schedule) => void
 }
 
-function GanttGrid({ schedules, windows, monthStart, userMap, onCreateOverride }: GanttGridProps) {
+function GanttGrid({
+  schedules,
+  windows,
+  monthStart,
+  userMap,
+  onEditSchedule,
+  onDeleteSchedule,
+}: GanttGridProps) {
   const daysCount = getDaysInMonth(monthStart)
   const days = Array.from({ length: daysCount }, (_, i) => addDays(monthStart, i))
   // startOfMonth(addMonths) gives exactly midnight of the first day of next month
@@ -113,9 +130,7 @@ function GanttGrid({ schedules, windows, monthStart, userMap, onCreateOverride }
 
   if (schedules.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        Расписаний нет. Создайте первое через API.
-      </p>
+      <p className="py-12 text-center text-sm text-muted-foreground">Расписаний пока нет.</p>
     )
   }
 
@@ -154,11 +169,18 @@ function GanttGrid({ schedules, windows, monthStart, userMap, onCreateOverride }
               <div className="flex w-44 shrink-0 items-center gap-1 border-r px-3 py-2">
                 <span className="flex-1 truncate text-sm font-medium">{schedule.name}</span>
                 <button
-                  onClick={() => onCreateOverride(schedule.id)}
-                  title="Создать замену"
+                  onClick={() => onEditSchedule(schedule)}
+                  title="Редактировать расписание"
                   className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                 >
-                  <Plus size={13} />
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={() => onDeleteSchedule(schedule)}
+                  title="Удалить расписание"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-destructive"
+                >
+                  <Trash2 size={13} />
                 </button>
               </div>
 
@@ -279,7 +301,8 @@ export function SchedulesPage() {
 
   // Month state for Gantt navigation (task 6.4)
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()))
-  const [overrideModal, setOverrideModal] = useState<{ scheduleId: string } | null>(null)
+  const [scheduleModal, setScheduleModal] = useState<{ schedule?: Schedule } | null>(null)
+  const [deleteModal, setDeleteModal] = useState<{ schedule: Schedule } | null>(null)
 
   const { data: rawSchedules } = useSchedules(t)
   const { data: rawMembers } = useMembers(t)
@@ -353,13 +376,18 @@ export function SchedulesPage() {
   })
 
   // user_id → display label for Gantt bars.
-  // Primary source: Keycloak members for this tenant (useMembers).
-  // Supplement: oncall-now results — each includes the currently on-call user's username.
-  // Together they cover all rotation slots at the time the page is loaded.
+  // Primary source: Keycloak members for this tenant (useMembers) — authoritative.
+  // Supplement: oncall-now results fill gaps for users not in the members list, but
+  // must NOT override a member name and must not be a raw uid (the oncall backend
+  // returns the uid as username when it can't resolve a profile) — otherwise the
+  // currently on-call engineer shows up as a uid everywhere.
   const userMap: Record<string, string> = {}
   members.forEach((m) => { userMap[m.user_id] = m.preferred_username })
   oncallResults.forEach((r) => {
-    if (r.data?.user_id && r.data?.username) userMap[r.data.user_id] = r.data.username
+    const d = r.data
+    if (d?.user_id && d.username && d.username !== d.user_id && !userMap[d.user_id]) {
+      userMap[d.user_id] = d.username
+    }
   })
 
   return (
@@ -382,6 +410,7 @@ export function SchedulesPage() {
                 schedule={s}
                 oncall={oncallResults[i]?.data}
                 isLoading={oncallResults[i]?.isLoading ?? true}
+                userMap={userMap}
               />
             ))}
           </div>
@@ -407,13 +436,11 @@ export function SchedulesPage() {
         </button>
         <Button
           size="sm"
-          variant="outline"
           className="ml-auto"
-          disabled={schedules.length === 0}
-          onClick={() => setOverrideModal({ scheduleId: schedules[0]?.id ?? '' })}
+          onClick={() => setScheduleModal({})}
         >
           <Plus size={14} className="mr-1" />
-          Создать замену
+          Создать расписание
         </Button>
       </div>
 
@@ -424,7 +451,8 @@ export function SchedulesPage() {
           windows={windows}
           monthStart={monthStart}
           userMap={userMap}
-          onCreateOverride={(scheduleId) => setOverrideModal({ scheduleId })}
+          onEditSchedule={(schedule) => setScheduleModal({ schedule })}
+          onDeleteSchedule={(schedule) => setDeleteModal({ schedule })}
         />
       </div>
 
@@ -436,14 +464,22 @@ export function SchedulesPage() {
         <UpcomingShiftsList schedules={schedules} windows={upcomingWindows} userMap={userMap} />
       </div>
 
-      {/* CreateOverrideModal (task 6.7, 6.8) */}
-      {overrideModal && (
-        <CreateOverrideModal
+      {/* ScheduleFormModal — create / edit */}
+      {scheduleModal && (
+        <ScheduleFormModal
           tenant={t}
-          schedules={schedules}
           members={members}
-          initialScheduleId={overrideModal.scheduleId}
-          onClose={() => setOverrideModal(null)}
+          schedule={scheduleModal.schedule}
+          onClose={() => setScheduleModal(null)}
+        />
+      )}
+
+      {/* DeleteScheduleModal — confirm deletion */}
+      {deleteModal && (
+        <DeleteScheduleModal
+          tenant={t}
+          schedule={deleteModal.schedule}
+          onClose={() => setDeleteModal(null)}
         />
       )}
     </div>
