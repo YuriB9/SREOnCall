@@ -101,6 +101,7 @@
 
   "users": [
     {
+      "id": "76b4b789-468a-4942-90ff-1d3f50b106bd",
       "username": "alice",
       "enabled": true,
       "emailVerified": true,
@@ -117,6 +118,7 @@
       "groups": ["/team-a", "/team-a/admins"]
     },
     {
+      "id": "357147d5-fffb-419c-b605-c8aac7295d68",
       "username": "bob",
       "enabled": true,
       "emailVerified": true,
@@ -133,6 +135,7 @@
       "groups": ["/team-b", "/team-b/admins"]
     },
     {
+      "id": "f114171f-1374-4907-a32a-d66cb1d276aa",
       "username": "charlie",
       "enabled": true,
       "emailVerified": true,
@@ -149,6 +152,7 @@
       "groups": ["/team-a"]
     },
     {
+      "id": "d06ec0b0-6415-4970-a913-01dfbaee6a5c",
       "username": "diana",
       "enabled": true,
       "emailVerified": true,
