@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sre-oncall/escalation/internal/domain"
@@ -26,6 +27,7 @@ type Store interface {
 	DeleteTenantConfig(ctx context.Context, tenantID string) error
 
 	GetEscalationStateByIncident(ctx context.Context, tenantID, incidentID string) (*domain.EscalationState, error)
+	ListEscalationStatesByIncidents(ctx context.Context, tenantID string, ids []string) ([]*domain.EscalationState, error)
 	ListHistory(ctx context.Context, tenantID, incidentID string) ([]*domain.EscalationHistory, error)
 }
 
@@ -264,6 +266,40 @@ func (h *Handler) GetEscalationState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, st)
+}
+
+// GetEscalationStates returns escalation states for a set of incidents passed as
+// a comma-separated `incident_ids` query parameter. Incidents without a state are
+// omitted from the array (treated by the UI as "no escalation started"). An empty
+// or missing parameter yields an empty array. Selection is scoped to the tenant in
+// the URL, so foreign-tenant incident IDs never leak into the response.
+func (h *Handler) GetEscalationStates(w http.ResponseWriter, r *http.Request) {
+	ids := parseIncidentIDs(r.URL.Query().Get("incident_ids"))
+	states, err := h.store.ListEscalationStatesByIncidents(r.Context(), tenant(r), ids)
+	if err != nil {
+		h.logger.Error("list escalation states", "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if states == nil {
+		states = []*domain.EscalationState{}
+	}
+	writeJSON(w, http.StatusOK, states)
+}
+
+// parseIncidentIDs splits a CSV list, trimming whitespace and dropping empties.
+func parseIncidentIDs(csv string) []string {
+	if csv == "" {
+		return nil
+	}
+	parts := strings.Split(csv, ",")
+	ids := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if id := strings.TrimSpace(p); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (h *Handler) ManualEscalate(w http.ResponseWriter, r *http.Request) {

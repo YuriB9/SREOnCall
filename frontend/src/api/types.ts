@@ -110,6 +110,14 @@ export interface EscalationPolicy {
   created_at: string
 }
 
+export type EscalationStatus = 'active' | 'acknowledged' | 'resolved' | 'exhausted'
+
+export interface EscalationState {
+  incident_id: string
+  current_tier: number
+  status: EscalationStatus
+}
+
 export interface TenantEscalationConfig {
   tenant_id: string
   default_policy_id: string | null

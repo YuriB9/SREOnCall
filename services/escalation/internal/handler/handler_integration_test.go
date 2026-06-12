@@ -129,6 +129,20 @@ func (m *memStore) GetEscalationStateByIncident(_ context.Context, _, incidentID
 	return nil, store.ErrNotFound
 }
 
+func (m *memStore) ListEscalationStatesByIncidents(_ context.Context, tenantID string, ids []string) ([]*domain.EscalationState, error) {
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := []*domain.EscalationState{}
+	for _, st := range m.states {
+		if st.TenantID == tenantID && want[st.IncidentID] {
+			out = append(out, st)
+		}
+	}
+	return out, nil
+}
+
 func (m *memStore) UpdateEscalationState(_ context.Context, st *domain.EscalationState) error {
 	m.states[st.IncidentID] = st
 	return nil
@@ -193,6 +207,7 @@ func newSrv(t *testing.T) (*httptest.Server, *memStore, *noopPub) {
 		r.Get("/default-policy", h.GetDefaultPolicy)
 		r.Put("/default-policy", h.PutDefaultPolicy)
 		r.Delete("/default-policy", h.DeleteDefaultPolicy)
+		r.Get("/incidents/state", h.GetEscalationStates)
 		r.Post("/incidents/{incidentId}/policy", h.AttachPolicy)
 		r.Get("/incidents/{incidentId}/state", h.GetEscalationState)
 		r.Post("/incidents/{incidentId}/escalate", h.ManualEscalate)
@@ -346,6 +361,81 @@ func TestHandler_ManualEscalate_AdvancesTier(t *testing.T) {
 	}
 	if len(pub.triggered) != 1 {
 		t.Errorf("expected 1 triggered event for tier 2, got %d", len(pub.triggered))
+	}
+}
+
+func TestHandler_GetEscalationStates_Bulk(t *testing.T) {
+	srv, st, _ := newSrv(t)
+	defer srv.Close()
+
+	// A and C have states, B does not.
+	st.states["inc-A"] = &domain.EscalationState{
+		ID: "sA", IncidentID: "inc-A", TenantID: "tenant-a", CurrentTier: 1, Status: "active",
+	}
+	st.states["inc-C"] = &domain.EscalationState{
+		ID: "sC", IncidentID: "inc-C", TenantID: "tenant-a", CurrentTier: 2, Status: "acknowledged",
+	}
+
+	resp, err := http.Get(srv.URL + "/api/escalations/v1/tenant-a/incidents/state?incident_ids=inc-A,inc-B,inc-C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var states []domain.EscalationState
+	_ = json.NewDecoder(resp.Body).Decode(&states)
+	if len(states) != 2 {
+		t.Fatalf("expected 2 states (A,C), got %d", len(states))
+	}
+	for _, s := range states {
+		if s.IncidentID == "inc-B" {
+			t.Errorf("inc-B has no state and must not appear")
+		}
+	}
+}
+
+func TestHandler_GetEscalationStates_NoneFound(t *testing.T) {
+	srv, _, _ := newSrv(t)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/escalations/v1/tenant-a/incidents/state?incident_ids=inc-X,inc-Y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var states []domain.EscalationState
+	_ = json.NewDecoder(resp.Body).Decode(&states)
+	if len(states) != 0 {
+		t.Errorf("expected empty array, got %d states", len(states))
+	}
+}
+
+func TestHandler_GetEscalationStates_TenantIsolation(t *testing.T) {
+	srv, st, _ := newSrv(t)
+	defer srv.Close()
+
+	// State belongs to tenant-b.
+	st.states["inc-foreign"] = &domain.EscalationState{
+		ID: "sF", IncidentID: "inc-foreign", TenantID: "tenant-b", CurrentTier: 1, Status: "active",
+	}
+
+	resp, err := http.Get(srv.URL + "/api/escalations/v1/tenant-a/incidents/state?incident_ids=inc-foreign")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var states []domain.EscalationState
+	_ = json.NewDecoder(resp.Body).Decode(&states)
+	if len(states) != 0 {
+		t.Errorf("foreign-tenant incident must not be returned, got %d states", len(states))
 	}
 }
 

@@ -129,6 +129,7 @@ func main() {
 			r.Delete("/default-policy", h.DeleteDefaultPolicy)
 
 			// Incident escalation
+			r.Get("/incidents/state", h.GetEscalationStates)
 			r.Post("/incidents/{incidentId}/policy", h.AttachPolicy)
 			r.Get("/incidents/{incidentId}/state", h.GetEscalationState)
 			r.Post("/incidents/{incidentId}/escalate", h.ManualEscalate)

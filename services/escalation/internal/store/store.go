@@ -212,6 +212,37 @@ func (s *Store) GetEscalationStateByIncident(ctx context.Context, tenantID, inci
 	return st, err
 }
 
+// ListEscalationStatesByIncidents returns escalation states for the given
+// incident IDs scoped to a tenant. Incidents without a state are simply absent
+// from the result. An empty ids slice returns an empty result without querying.
+func (s *Store) ListEscalationStatesByIncidents(ctx context.Context, tenantID string, ids []string) ([]*domain.EscalationState, error) {
+	if len(ids) == 0 {
+		return []*domain.EscalationState{}, nil
+	}
+	rows, err := s.db.Query(ctx,
+		`SELECT id, incident_id, tenant_id, tenant_slug, policy_id, current_tier, status, escalate_at, created_at, updated_at,
+		        COALESCE(incident_title,''), COALESCE(incident_severity,''), COALESCE(incident_status,'')
+		 FROM escalation.incident_escalation_states
+		 WHERE tenant_id=$1 AND incident_id = ANY($2)`,
+		tenantID, ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []*domain.EscalationState{}
+	for rows.Next() {
+		st := &domain.EscalationState{}
+		if err := rows.Scan(&st.ID, &st.IncidentID, &st.TenantID, &st.TenantSlug, &st.PolicyID,
+			&st.CurrentTier, &st.Status, &st.EscalateAt, &st.CreatedAt, &st.UpdatedAt,
+			&st.IncidentTitle, &st.IncidentSeverity, &st.IncidentStatus); err != nil {
+			return nil, err
+		}
+		result = append(result, st)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) UpdateEscalationState(ctx context.Context, st *domain.EscalationState) error {
 	tag, err := s.db.Exec(ctx,
 		`UPDATE escalation.incident_escalation_states

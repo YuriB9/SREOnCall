@@ -57,6 +57,13 @@ function StepCard({
 }: StepCardProps) {
   const minutes = Math.round(step.timeout_seconds / 60)
 
+  // The tier may reference a schedule that has since been deleted. Surface it as
+  // an explicit option so the field doesn't silently look empty and so the user
+  // can tell a dangling reference apart from "not chosen yet".
+  const isDangling =
+    Boolean(step.notify_schedule_id) &&
+    !scheduleOptions.some((s) => s.id === step.notify_schedule_id)
+
   return (
     <div className="relative flex gap-3">
       <div className="flex flex-col items-center">
@@ -84,7 +91,15 @@ function StepCard({
                   {s.name}
                 </option>
               ))}
+              {isDangling && (
+                <option value={step.notify_schedule_id}>Расписание удалено — выберите заново</option>
+              )}
             </select>
+            {isDangling && !step.error && (
+              <p className="text-xs text-destructive">
+                Расписание было удалено. Выберите другое.
+              </p>
+            )}
             {step.error && <p className="text-xs text-destructive">{step.error}</p>}
           </div>
 

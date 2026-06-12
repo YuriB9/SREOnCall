@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiClient } from './client'
-import type { EscalationPolicy, PolicyTier, TenantEscalationConfig } from './types'
+import type {
+  EscalationPolicy,
+  EscalationState,
+  PolicyTier,
+  TenantEscalationConfig,
+} from './types'
 
 // ─── Query keys ───────────────────────────────────────────────────────────────
 
@@ -10,7 +15,36 @@ export function escalationKeys(tenant: string) {
     all: [tenant, 'escalations'] as const,
     list: () => [tenant, 'escalations', 'list'] as const,
     defaultPolicy: () => [tenant, 'escalations', 'default'] as const,
+    states: (ids: string[]) => [tenant, 'escalations', 'states', ids] as const,
   }
+}
+
+// Fetches escalation states for the given incidents in a single bulk call and
+// returns them as a Map keyed by incident_id. Disabled when the id list is empty
+// and degrades gracefully to an empty map if the escalation service errors, so
+// the incident list keeps working when escalation is unavailable.
+export function useEscalationStates(tenant: string, incidentIds: string[]) {
+  const sortedIds = [...incidentIds].sort()
+  return useQuery({
+    queryKey: escalationKeys(tenant).states(sortedIds),
+    enabled: sortedIds.length > 0,
+    refetchInterval: 12_000,
+    queryFn: async () => {
+      try {
+        const { data } = await apiClient.get<EscalationState[]>(
+          `/escalations/v1/${tenant}/incidents/state`,
+          { params: { incident_ids: sortedIds.join(',') } },
+        )
+        const map = new Map<string, EscalationState>()
+        if (Array.isArray(data)) {
+          for (const s of data) map.set(s.incident_id, s)
+        }
+        return map
+      } catch {
+        return new Map<string, EscalationState>()
+      }
+    },
+  })
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────

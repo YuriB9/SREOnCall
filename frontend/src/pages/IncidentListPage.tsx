@@ -8,7 +8,8 @@ import {
   useIncidents,
   useResolveIncident,
 } from '@/api/incidents'
-import type { IncidentSeverity, IncidentStatus } from '@/api/types'
+import { useEscalationStates } from '@/api/escalations'
+import type { EscalationStatus, IncidentSeverity, IncidentStatus } from '@/api/types'
 import { useAudioEnabled } from '@/hooks/useAudioEnabled'
 import { useAudioNotification } from '@/hooks/useAudioNotification'
 import { useKeyMap } from '@/hooks/useKeyMap'
@@ -57,6 +58,20 @@ const STATUS_TEXT: Record<IncidentStatus, string> = {
   resolved: 'Закрыт',
 }
 
+const ESCALATION_LABEL: Record<EscalationStatus, string> = {
+  active: 'активна',
+  acknowledged: 'подтверждена',
+  resolved: 'закрыта',
+  exhausted: 'исчерпана',
+}
+
+const ESCALATION_CLASS: Record<EscalationStatus, string> = {
+  active: 'bg-destructive/10 text-destructive',
+  acknowledged: 'bg-yellow-500/10 text-yellow-700 dark:text-yellow-400',
+  resolved: 'bg-green-500/10 text-green-700 dark:text-green-400',
+  exhausted: 'bg-muted text-muted-foreground',
+}
+
 export function IncidentListPage() {
   const { tenant } = useParams<{ tenant: string }>()
   const t = tenant!
@@ -73,6 +88,12 @@ export function IncidentListPage() {
 
   const { data, isLoading } = useIncidents(t, filters)
   const incidents = data?.incidents ?? []
+
+  // Escalation states for the visible incidents — one bulk call per page.
+  const { data: escalationStates } = useEscalationStates(
+    t,
+    incidents.map((i) => i.id),
+  )
 
   const [audioEnabled] = useAudioEnabled()
   const playBeep = useAudioNotification()
@@ -228,8 +249,9 @@ export function IncidentListPage() {
                 <th className="p-2 text-xs font-medium text-muted-foreground">Статус</th>
                 <th className="p-2 text-xs font-medium text-muted-foreground">Alertname</th>
                 <th className="p-2 text-xs font-medium text-muted-foreground">Создан</th>
+                <th className="p-2 text-xs font-medium text-muted-foreground">Подтверждён</th>
                 <th className="p-2 pr-3 text-xs font-medium text-muted-foreground">
-                  Подтверждён
+                  Эскалация
                 </th>
               </tr>
             </thead>
@@ -272,15 +294,31 @@ export function IncidentListPage() {
                   <td className="p-2 text-xs text-muted-foreground">
                     {format(new Date(inc.created_at), 'dd.MM HH:mm')}
                   </td>
-                  <td className="p-2 pr-3 text-xs text-muted-foreground">
+                  <td className="p-2 text-xs text-muted-foreground">
                     {inc.acknowledged_by ?? '—'}
+                  </td>
+                  <td className="p-2 pr-3">
+                    {(() => {
+                      const esc = escalationStates?.get(inc.id)
+                      if (!esc) return <span className="text-xs text-muted-foreground">—</span>
+                      return (
+                        <span
+                          className={cn(
+                            'inline-flex h-5 items-center rounded-full px-2 text-xs font-medium',
+                            ESCALATION_CLASS[esc.status],
+                          )}
+                        >
+                          Уровень {esc.current_tier} · {ESCALATION_LABEL[esc.status]}
+                        </span>
+                      )
+                    })()}
                   </td>
                 </tr>
               ))}
 
               {!isLoading && incidents.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-10 text-center text-muted-foreground">
+                  <td colSpan={7} className="p-10 text-center text-muted-foreground">
                     Инцидентов нет
                   </td>
                 </tr>
