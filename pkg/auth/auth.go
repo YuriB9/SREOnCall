@@ -50,6 +50,12 @@ type Claims struct {
 	Groups            []string `json:"groups"`
 }
 
+// WithClaims returns a context carrying the given Claims.
+// Exposed for handler tests; production code relies on Middleware.
+func WithClaims(ctx context.Context, c Claims) context.Context {
+	return context.WithValue(ctx, claimsKey, c)
+}
+
 // FromContext retrieves Claims from the request context.
 // Returns zero value and false if not present.
 func FromContext(ctx context.Context) (Claims, bool) {

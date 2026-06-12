@@ -119,6 +119,9 @@ func main() {
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
+		// Cross-tenant: provisions contacts for all of the caller's tenants on
+		// login. Derives tenants from JWT claims, so it is not tenant-scoped.
+		r.Post("/api/notifications/v1/sync-contacts", h.SyncContacts)
 		r.Route("/api/notifications/v1/{tenant}", func(r chi.Router) {
 			r.Use(pkgauth.RequireTenantMember)
 			r.Put("/contacts/{userId}", h.PutContact)

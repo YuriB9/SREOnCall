@@ -26,16 +26,16 @@ const CHANNEL_LABELS: Record<NotificationChannel, string> = {
 interface ContactsFormProps {
   tenant: string
   userId: string
+  defaultEmail?: string
 }
 
-function ContactsForm({ tenant, userId }: ContactsFormProps) {
+function ContactsForm({ tenant, userId, defaultEmail }: ContactsFormProps) {
   const { data: serverContacts, isLoading } = useUserContacts(tenant, userId)
   const saveContacts = useSaveUserContacts(tenant, userId)
 
   const [email, setEmail] = useState('')
   const [mattermostUsername, setMattermostUsername] = useState('')
   const [enabledChannels, setEnabledChannels] = useState<NotificationChannel[]>([])
-  const [emailError, setEmailError] = useState<string | null>(null)
   const [emailWarning, setEmailWarning] = useState<string | null>(null)
   const [mattermostWarning, setMattermostWarning] = useState<string | null>(null)
   const initialized = useRef(false)
@@ -44,12 +44,19 @@ function ContactsForm({ tenant, userId }: ContactsFormProps) {
     if (isLoading) return
     if (initialized.current) return
     initialized.current = true
-    if (serverContacts) {
+    // An existing contact has a non-empty id; the backend returns an empty
+    // default (id === '') when nothing is configured yet.
+    if (serverContacts?.id) {
       setEmail(serverContacts.email ?? '')
       setMattermostUsername(serverContacts.mattermost_username ?? '')
       setEnabledChannels((serverContacts.enabled_channels ?? []) as NotificationChannel[])
+    } else if (defaultEmail) {
+      // First visit: prefill the email from the Keycloak token and enable the
+      // email channel so the user only needs to confirm with Save.
+      setEmail(defaultEmail)
+      setEnabledChannels(['email'])
     }
-  }, [serverContacts, isLoading])
+  }, [serverContacts, isLoading, defaultEmail])
 
   function buildPayload(): ContactsInput {
     return {
@@ -61,11 +68,6 @@ function ContactsForm({ tenant, userId }: ContactsFormProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (email && !isValidEmail(email)) {
-      setEmailError('Введите корректный email')
-      return
-    }
-    setEmailError(null)
     saveContacts.mutate(buildPayload(), {
       onSuccess: () => showToast('Контакты сохранены', 'success'),
       onError: () => showToast('Не удалось сохранить контакты'),
@@ -117,15 +119,12 @@ function ContactsForm({ tenant, userId }: ContactsFormProps) {
           <input
             type="text"
             value={email}
-            onChange={(e) => {
-              setEmail(e.target.value)
-              if (emailError) setEmailError(null)
-              if (emailWarning) setEmailWarning(null)
-            }}
+            readOnly
+            disabled
             placeholder="you@example.com"
-            className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none focus:ring-1 focus:ring-ring"
+            className="w-full cursor-not-allowed rounded-md border bg-muted px-3 py-1.5 text-sm text-muted-foreground outline-none"
           />
-          {emailError && <p className="text-xs text-destructive">{emailError}</p>}
+          <p className="text-xs text-muted-foreground">Email берётся из учётной записи Keycloak и не редактируется здесь.</p>
         </div>
 
         <div className="space-y-1">
@@ -246,7 +245,12 @@ export function ProfilePage() {
         )}
 
         {selectedTenant && userId ? (
-          <ContactsForm key={selectedTenant} tenant={selectedTenant} userId={userId} />
+          <ContactsForm
+            key={selectedTenant}
+            tenant={selectedTenant}
+            userId={userId}
+            defaultEmail={user?.profile.email}
+          />
         ) : tenants.length === 0 ? (
           <p className="text-sm text-muted-foreground">Вы не состоите ни в одной команде.</p>
         ) : null}

@@ -16,6 +16,12 @@ export interface ContactsInput {
   enabled_channels: NotificationChannel[]
 }
 
+// Provisions/updates the caller's contacts across all their tenants from the
+// Keycloak token. Called once on login; safe to call repeatedly.
+export async function syncUserContacts() {
+  await apiClient.post('/notifications/v1/sync-contacts')
+}
+
 export function useUserContacts(tenant: string, userId: string) {
   return useQuery({
     queryKey: contactsKey(tenant, userId),
