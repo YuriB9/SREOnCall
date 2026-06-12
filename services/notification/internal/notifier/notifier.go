@@ -130,6 +130,11 @@ func (n *Notifier) NotifyExhausted(ctx context.Context, ev ExhaustedEvent) error
 	if err != nil {
 		n.logger.Warn("tenant cache fetch failed", "tenant_slug", ev.TenantSlug, "err", err)
 	}
+	if cfg != nil && !cfg.MattermostEnabled {
+		n.logger.Info("mattermost disabled for tenant — skipping exhausted notification",
+			"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID)
+		return nil
+	}
 	if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
 		n.logger.Error("mattermost webhook URL missing or masked — skipping exhausted notification",
 			"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID)
@@ -187,16 +192,37 @@ func (n *Notifier) dispatchToContact(
 			if contact.Email == "" {
 				continue
 			}
+			// Email is on by default: a nil config (missing row / fetch failure)
+			// must not silently mute email. Only an explicit email_enabled=false
+			// skips the channel.
+			if cfg != nil && !cfg.EmailEnabled {
+				n.logger.Info("email disabled for tenant — skipping notification",
+					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
+				continue
+			}
 			from := n.smtpFrom
-			if cfg != nil && cfg.SMTPFrom != "" {
-				from = cfg.SMTPFrom
+			emailMsg := msg
+			if cfg != nil {
+				if cfg.SMTPFrom != "" {
+					from = cfg.SMTPFrom
+				}
+				emailMsg.ReplyTo = cfg.EmailReplyTo
+				emailMsg.SubjectPrefix = cfg.EmailSubjectPrefix
 			}
 			n.dispatchChannel(ctx, ev.TenantID, ev.OncallUserID, ev.IncidentID,
 				domain.ChannelEmail, contact.Email, func() error {
-					return n.email.Send(ctx, from, contact.Email, msg)
+					return n.email.Send(ctx, from, contact.Email, emailMsg)
 				})
 
 		case domain.ChannelMattermost:
+			// Symmetric with email: an explicit mattermost_enabled=false is an
+			// info-level skip (not a failure). A nil config falls through to the
+			// webhook check below — no webhook still logs failed, as before.
+			if cfg != nil && !cfg.MattermostEnabled {
+				n.logger.Info("mattermost disabled for tenant — skipping notification",
+					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
+				continue
+			}
 			if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
 				n.logger.Error("mattermost webhook URL missing or masked — skipping notification",
 					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)

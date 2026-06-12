@@ -190,6 +190,7 @@ func TestNotifyTriggered_MattermostChannel(t *testing.T) {
 		EnabledChannels:    []string{domain.ChannelMattermost},
 	}
 	cfg := &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    true,
 		MattermostWebhookURL: "http://mm.example.com/hook",
 		MattermostChannel:    "#alerts",
 	}
@@ -283,6 +284,7 @@ func TestNotifyTriggered_EmailSendFailed_LogsFailure(t *testing.T) {
 func TestNotifyExhausted_PostsToMattermostChannel(t *testing.T) {
 	st := newMemStore()
 	cfg := &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    true,
 		MattermostWebhookURL: "http://mm.example.com/hook",
 		MattermostChannel:    "#incidents",
 	}
@@ -366,6 +368,7 @@ func TestNotifyTriggered_EnrichedMattermostContent(t *testing.T) {
 	}
 	mm := &stubMattermost{}
 	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    true,
 		MattermostWebhookURL: "https://mm.example.com/hooks/abc", MattermostChannel: "#oncall",
 	}}
 	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, &stubEmail{}, mm)
@@ -394,7 +397,9 @@ func TestNotifyTriggered_FallbackWithoutIncidentFields(t *testing.T) {
 	email := &stubEmail{}
 	mm := &stubMattermost{}
 	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    true,
 		MattermostWebhookURL: "https://mm.example.com/hooks/abc", MattermostChannel: "#oncall",
+		EmailEnabled: true,
 	}}
 	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, mm)
 
@@ -411,6 +416,77 @@ func TestNotifyTriggered_FallbackWithoutIncidentFields(t *testing.T) {
 	}
 	if !strings.Contains(mm.calls[0], "inc-8") || !strings.Contains(mm.calls[0], "tier 1") {
 		t.Errorf("fallback mattermost text missing ID/tier: %s", mm.calls[0])
+	}
+}
+
+func TestNotifyTriggered_EmailDisabled_Skipped(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", Email: "alice@example.com",
+		EnabledChannels: []string{domain.ChannelEmail},
+	}
+	email := &stubEmail{}
+	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{EmailEnabled: false}}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, &stubMattermost{})
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 0 {
+		t.Errorf("expected no email when disabled, got %d", len(email.calls))
+	}
+	// Disabled email is an info-level skip, not a failure: no log entry.
+	if len(st.logs) != 0 {
+		t.Errorf("expected no log entry for disabled email, got %v", st.logs)
+	}
+}
+
+func TestNotifyTriggered_MattermostDisabled_Skipped(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", MattermostUsername: "alice",
+		EnabledChannels: []string{domain.ChannelMattermost},
+	}
+	mm := &stubMattermost{}
+	// Webhook present but channel disabled at tenant level → info skip, no log.
+	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    false,
+		MattermostWebhookURL: "https://mm.example.com/hooks/abc", MattermostChannel: "#oncall",
+	}}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, &stubEmail{}, mm)
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(mm.calls) != 0 {
+		t.Errorf("expected no mattermost when disabled, got %d", len(mm.calls))
+	}
+	if len(st.logs) != 0 {
+		t.Errorf("expected no log entry for disabled mattermost, got %v", st.logs)
+	}
+}
+
+func TestNotifyTriggered_EmailReplyToAndPrefix(t *testing.T) {
+	st := newMemStore()
+	st.contacts["tenant-a:alice"] = &domain.UserContact{
+		UserID: "alice", TenantID: "tenant-a", Email: "alice@example.com",
+		EnabledChannels: []string{domain.ChannelEmail},
+	}
+	email := &stubEmail{}
+	cache := &stubCache{cfg: &schedclient.TenantNotificationConfig{
+		EmailEnabled: true, EmailReplyTo: "support@acme.com", EmailSubjectPrefix: "[ACME PROD]",
+	}}
+	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, &stubMattermost{})
+
+	if err := n.NotifyTriggered(context.Background(), enrichedEvent()); err != nil {
+		t.Fatal(err)
+	}
+	if len(email.calls) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(email.calls))
+	}
+	msg := email.calls[0]
+	if msg.ReplyTo != "support@acme.com" || msg.SubjectPrefix != "[ACME PROD]" {
+		t.Errorf("reply-to/prefix not propagated: %+v", msg)
 	}
 }
 

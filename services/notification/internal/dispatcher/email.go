@@ -19,6 +19,10 @@ type EmailMessage struct {
 	Tier     int
 	// Link is the dashboard deep link; empty when FRONTEND_BASE_URL is unset.
 	Link string
+	// ReplyTo is the per-tenant Reply-To address; empty omits the header.
+	ReplyTo string
+	// SubjectPrefix is prepended to the subject line; empty adds nothing.
+	SubjectPrefix string
 }
 
 type Email struct {
@@ -37,6 +41,9 @@ func (d *Email) Send(_ context.Context, from, to string, msg EmailMessage) error
 	if msg.Title == "" {
 		// Event without incident data (older escalation version) — fallback.
 		subject = fmt.Sprintf("[SRE OnCall] Incident %s escalated (tier %d)", msg.IncidentID, msg.Tier)
+	}
+	if msg.SubjectPrefix != "" {
+		subject = msg.SubjectPrefix + " " + subject
 	}
 
 	var b strings.Builder
@@ -57,10 +64,13 @@ func (d *Email) Send(_ context.Context, from, to string, msg EmailMessage) error
 	}
 	fmt.Fprintf(&b, "Time: %s\n", time.Now().UTC().Format(time.RFC3339))
 	body := b.String()
-	raw := fmt.Sprintf(
-		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n\r\n%s",
-		from, to, subject, body,
-	)
+	var headers strings.Builder
+	fmt.Fprintf(&headers, "From: %s\r\nTo: %s\r\n", from, to)
+	if msg.ReplyTo != "" {
+		fmt.Fprintf(&headers, "Reply-To: %s\r\n", msg.ReplyTo)
+	}
+	fmt.Fprintf(&headers, "Subject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n", subject)
+	raw := headers.String() + "\r\n" + body
 
 	addr := d.host + ":" + d.port
 	var auth smtp.Auth

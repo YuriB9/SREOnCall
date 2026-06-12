@@ -156,9 +156,13 @@ export interface WebhookTokenCreated extends WebhookToken {
 
 export interface NotificationConfig {
   tenant_id: string
+  mattermost_enabled: boolean
   mattermost_webhook_url: string
   mattermost_channel: string
   smtp_from: string
+  email_enabled: boolean
+  email_reply_to: string
+  email_subject_prefix: string
 }
 
 export interface Member {

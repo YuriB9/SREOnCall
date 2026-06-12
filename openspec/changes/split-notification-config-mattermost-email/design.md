@@ -38,19 +38,27 @@ SMTP-транспорт (host/port/username/password) — глобальный e
 
 ```sql
 ALTER TABLE tenant_notification_config
+  ADD COLUMN mattermost_enabled   boolean NOT NULL DEFAULT true,
   ADD COLUMN email_enabled        boolean NOT NULL DEFAULT true,
   ADD COLUMN email_reply_to       text    NOT NULL DEFAULT '',
   ADD COLUMN email_subject_prefix text    NOT NULL DEFAULT '';
 ```
 
-`DEFAULT true`/`''` обеспечивает обратную совместимость: существующие тенанты получают email включённым без Reply-To и префикса. Не **BREAKING**.
+`DEFAULT true`/`''` обеспечивает обратную совместимость: существующие тенанты получают оба канала включёнными без Reply-To и префикса. Не **BREAKING**.
 
 ### Решение 3: Поля DTO и проброс в notification-сервис
 
 - `store.NotificationConfig` + GET/Upsert: добавить `EmailEnabled bool`, `EmailReplyTo string`, `EmailSubjectPrefix string`. Эти поля не маскируются (не секреты), отдаются в GET как есть.
 - `schedclient.Config` (notification) ([client.go](../../../services/notification/internal/schedclient/client.go)): добавить те же поля.
 - `dispatcher.EmailMessage` расширить полями `ReplyTo` и `SubjectPrefix`; в `Send` префикс добавляется в начало темы, а `Reply-To` — в заголовки письма (только если непустой).
-- `notifier`: ветка `ChannelEmail` пропускает отправку при `cfg.EmailEnabled == false` (лог info, без записи `failed`); заполняет `ReplyTo`/`SubjectPrefix` из cfg.
+- `notifier`: ветка `ChannelEmail` пропускает отправку при `cfg.EmailEnabled == false` (лог info, без записи `failed`); заполняет `ReplyTo`/`SubjectPrefix` из cfg. Ветка `ChannelMattermost` симметрично пропускает отправку при `cfg.MattermostEnabled == false` (лог info, без записи `failed`); существующая проверка отсутствующего/маскированного webhook (запись `failed`) сохраняется для включённого канала. Та же проверка `mattermost_enabled` применяется в `NotifyExhausted`.
+
+### Решение 6: Симметричный тумблер Mattermost (`mattermost_enabled`)
+
+Чтобы обе секции UI выглядели и вели себя единообразно (выбор пользователя — «полная симметрия тумблеров»), Mattermost получает явный флаг `mattermost_enabled`, зеркальный `email_enabled`, а не неявное «есть/нет webhook». Это даёт админу неразрушающее отключение канала (webhook сохраняется). Различие семантики сохраняется на уровне логирования: `enabled=false` — это намеренное info-отключение, тогда как `enabled=true` без webhook остаётся ошибкой доставки (`failed`). На фронте при `enabled=true` и пустом webhook показывается мягкое предупреждение.
+
+- _Альтернатива — оставить Mattermost без тумблера (асимметрия)_: проще, но непоследовательно для пользователя; отклонено в пользу симметрии.
+- _Альтернатива — тумблер «выключить» = очистить webhook_: разрушительно (теряется сохранённый URL); отклонено в пользу отдельного флага.
 
 ### Решение 4: GET возвращает дефолтный конфиг вместо 404 (фикс «незаполненный конфиг»)
 

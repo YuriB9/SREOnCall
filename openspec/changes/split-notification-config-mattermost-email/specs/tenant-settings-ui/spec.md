@@ -4,7 +4,7 @@
 
 Система ДОЛЖНА (SHALL) отображать конфигурацию уведомлений уровня тенанта, получаемую через `GET /api/schedules/v1/tenants/{tenant}/notification-config`, в виде **двух раздельных логических секций** — «Mattermost» и «Email». Каждая секция ДОЛЖНА иметь собственный заголовок, собственный набор полей и собственную кнопку «Сохранить»; сохранение одной секции НЕ ДОЛЖНО требовать заполнения полей другой. Сохранение ДОЛЖНО выполнять `PUT /api/schedules/v1/tenants/{tenant}/notification-config`.
 
-Секция «Mattermost» ДОЛЖНА содержать поля `mattermost_webhook_url` и `mattermost_channel`.
+Секция «Mattermost» ДОЛЖНА содержать переключатель `mattermost_enabled` и поля `mattermost_webhook_url` и `mattermost_channel`. Переключатель `mattermost_enabled` симметричен `email_enabled` секции Email и предзаполняется значением из GET-ответа. Если канал включён (`mattermost_enabled = true`), но webhook не задан (ни сохранённый, ни введённый), форма ДОЛЖНА показывать ненавязчивое предупреждение о том, что уведомления не будут отправляться, не блокируя сохранение.
 
 Поле `mattermost_webhook_url` НЕ ДОЛЖНО предзаполняться маскированным значением из GET-ответа; вместо этого рядом с пустым полем отображается текущий маскированный URL как справочная информация. Если пользователь не вводил новое значение URL, форма НЕ ДОЛЖНА включать поле `mattermost_webhook_url` в тело PUT-запроса — сохранённый вебхук не может быть затёрт неявно.
 
@@ -13,12 +13,22 @@
 #### Scenario: Отображение двух секций
 
 - **WHEN** администратор открывает `/[tenant]/settings/notifications`
-- **THEN** система ДОЛЖНА отрендерить две раздельные секции — «Mattermost» (с полями `mattermost_webhook_url`, `mattermost_channel`) и «Email» (с переключателем `email_enabled` и полями `smtp_from`, `email_reply_to`, `email_subject_prefix`), каждую со своей кнопкой «Сохранить»
+- **THEN** система ДОЛЖНА отрендерить две раздельные секции — «Mattermost» (с переключателем `mattermost_enabled` и полями `mattermost_webhook_url`, `mattermost_channel`) и «Email» (с переключателем `email_enabled` и полями `smtp_from`, `email_reply_to`, `email_subject_prefix`), каждую со своей кнопкой «Сохранить»
 
 #### Scenario: Сохранение секции Mattermost
 
 - **WHEN** администратор редактирует поле `mattermost_channel` в секции Mattermost и нажимает «Сохранить» этой секции
-- **THEN** система ДОЛЖНА выполнить PUT конфига и показать toast об успехе
+- **THEN** тело PUT-запроса ДОЛЖНО содержать `mattermost_enabled` и `mattermost_channel`, система ДОЛЖНА выполнить PUT конфига и показать toast об успехе
+
+#### Scenario: Предупреждение о включённом канале без webhook
+
+- **WHEN** в секции Mattermost переключатель `mattermost_enabled` включён, но webhook не задан (ни сохранённый маскированный, ни введённый)
+- **THEN** система ДОЛЖНА показать ненавязчивое предупреждение, что уведомления не будут отправляться до указания webhook, и НЕ ДОЛЖНА блокировать сохранение
+
+#### Scenario: Отключение Mattermost-канала сохраняет webhook
+
+- **WHEN** администратор выключает переключатель `mattermost_enabled` и сохраняет секцию Mattermost, не вводя новый webhook
+- **THEN** PUT-запрос содержит `mattermost_enabled: false` и НЕ содержит `mattermost_webhook_url`, а сохранённый вебхук остаётся без изменений
 
 #### Scenario: Сохранение без ввода URL не затирает вебхук
 

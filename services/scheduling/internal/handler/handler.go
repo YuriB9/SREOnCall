@@ -633,12 +633,14 @@ func (h *Handler) DeleteWebhookToken(w http.ResponseWriter, r *http.Request) {
 // ── Tenant notification config ─────────────────────────────────────────────────
 
 func (h *Handler) GetTenantNotificationConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, err := h.store.GetNotificationConfig(r.Context(), chi.URLParam(r, "slug"))
+	slug := chi.URLParam(r, "slug")
+	cfg, err := h.store.GetNotificationConfig(r.Context(), slug)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not found")
-		return
-	}
-	if err != nil {
+		// No stored row yet: return a default config (200) instead of 404.
+		// notification caches a 404 as nil for the whole TTL, which would keep
+		// email silent after the first save; a default keeps email enabled.
+		cfg = &store.NotificationConfig{TenantID: slug, MattermostEnabled: true, EmailEnabled: true}
+	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -649,44 +651,83 @@ func (h *Handler) GetTenantNotificationConfig(w http.ResponseWriter, r *http.Req
 	if m, ok := auth.MethodFromContext(r.Context()); ok && m == auth.MethodService {
 		webhookURL = cfg.MattermostWebhookURL
 	}
-	out := map[string]string{
+	out := map[string]any{
 		"tenant_id":              cfg.TenantID,
+		"mattermost_enabled":     cfg.MattermostEnabled,
 		"mattermost_webhook_url": webhookURL,
 		"mattermost_channel":     cfg.MattermostChannel,
 		"smtp_from":              cfg.SMTPFrom,
+		"email_enabled":          cfg.EmailEnabled,
+		"email_reply_to":         cfg.EmailReplyTo,
+		"email_subject_prefix":   cfg.EmailSubjectPrefix,
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
+// notificationConfigPatch carries the PUT body with pointers so absent fields
+// (nil) are distinguished from explicitly cleared ones (""). Each section of
+// the UI saves only its own fields; the handler merges them onto the current
+// row, leaving the other section's fields untouched.
+type notificationConfigPatch struct {
+	MattermostEnabled    *bool   `json:"mattermost_enabled"`
+	MattermostWebhookURL *string `json:"mattermost_webhook_url"`
+	MattermostChannel    *string `json:"mattermost_channel"`
+	SMTPFrom             *string `json:"smtp_from"`
+	EmailEnabled         *bool   `json:"email_enabled"`
+	EmailReplyTo         *string `json:"email_reply_to"`
+	EmailSubjectPrefix   *string `json:"email_subject_prefix"`
+}
+
 func (h *Handler) PutTenantNotificationConfig(w http.ResponseWriter, r *http.Request) {
-	var body store.NotificationConfig
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	var patch notificationConfigPatch
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	body.TenantID = chi.URLParam(r, "slug")
+	slug := chi.URLParam(r, "slug")
 
-	// Empty or missing webhook URL means "keep the stored value": the UI only
-	// ever sees the masked URL (see GetTenantNotificationConfig) and must not
-	// be able to wipe the real one by submitting the field unfilled.
-	if body.MattermostWebhookURL == "" {
-		cur, err := h.store.GetNotificationConfig(r.Context(), body.TenantID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
-		}
-		if cur != nil {
-			body.MattermostWebhookURL = cur.MattermostWebhookURL
-		}
-	}
-
-	if err := h.store.UpsertNotificationConfig(r.Context(), &body); err != nil {
+	// Start from the current row so a partial save preserves untouched fields.
+	// Missing row → default (email enabled), same as GET.
+	cur, err := h.store.GetNotificationConfig(r.Context(), slug)
+	if errors.Is(err, store.ErrNotFound) {
+		cur = &store.NotificationConfig{TenantID: slug, MattermostEnabled: true, EmailEnabled: true}
+	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	// The echoed config may now carry the preserved stored URL — apply the
+	cur.TenantID = slug
+
+	// Apply only present fields. mattermost_webhook_url stays special: the UI
+	// only sees the masked URL, so an empty/absent value means "keep stored".
+	if patch.MattermostEnabled != nil {
+		cur.MattermostEnabled = *patch.MattermostEnabled
+	}
+	if patch.MattermostWebhookURL != nil && *patch.MattermostWebhookURL != "" {
+		cur.MattermostWebhookURL = *patch.MattermostWebhookURL
+	}
+	if patch.MattermostChannel != nil {
+		cur.MattermostChannel = *patch.MattermostChannel
+	}
+	if patch.SMTPFrom != nil {
+		cur.SMTPFrom = *patch.SMTPFrom
+	}
+	if patch.EmailEnabled != nil {
+		cur.EmailEnabled = *patch.EmailEnabled
+	}
+	if patch.EmailReplyTo != nil {
+		cur.EmailReplyTo = *patch.EmailReplyTo
+	}
+	if patch.EmailSubjectPrefix != nil {
+		cur.EmailSubjectPrefix = *patch.EmailSubjectPrefix
+	}
+
+	if err := h.store.UpsertNotificationConfig(r.Context(), cur); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	// The echoed config may carry the preserved stored URL — apply the
 	// same masking policy as GET so non-service callers never see it.
-	out := body
+	out := *cur
 	if m, ok := auth.MethodFromContext(r.Context()); !ok || m != auth.MethodService {
 		out.MattermostWebhookURL = maskURL(out.MattermostWebhookURL)
 	}

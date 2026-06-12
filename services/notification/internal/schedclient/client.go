@@ -9,9 +9,13 @@ import (
 )
 
 type TenantNotificationConfig struct {
+	MattermostEnabled    bool   `json:"mattermost_enabled"`
 	MattermostWebhookURL string `json:"mattermost_webhook_url"`
 	MattermostChannel    string `json:"mattermost_channel"`
 	SMTPFrom             string `json:"smtp_from"`
+	EmailEnabled         bool   `json:"email_enabled"`
+	EmailReplyTo         string `json:"email_reply_to"`
+	EmailSubjectPrefix   string `json:"email_subject_prefix"`
 }
 
 type Client struct {

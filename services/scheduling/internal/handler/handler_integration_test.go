@@ -579,6 +579,69 @@ func TestTenantNotificationConfig_PutNonEmptyURLReplaces(t *testing.T) {
 	}
 }
 
+func TestTenantNotificationConfig_GetDefaultsWhenUnset(t *testing.T) {
+	srv, _ := newTenantSrv(t)
+	defer srv.Close()
+
+	// No stored row: GET must return 200 with defaults (not 404), so the
+	// notification cache stores a usable default with email enabled.
+	resp, err := http.Get(srv.URL + "/api/schedules/v1/tenants/tenant-a/notification-config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with defaults, got %d", resp.StatusCode)
+	}
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if out["email_enabled"] != true || out["mattermost_enabled"] != true {
+		t.Errorf("enabled defaults = mm:%v email:%v, want both true", out["mattermost_enabled"], out["email_enabled"])
+	}
+	if out["mattermost_webhook_url"] != "" || out["email_reply_to"] != "" {
+		t.Errorf("expected empty defaults, got %+v", out)
+	}
+}
+
+func TestTenantNotificationConfig_PartialSaveKeepsOtherSection(t *testing.T) {
+	st := newMemStore()
+	st.notifCfg["tenant-a"] = &store.NotificationConfig{
+		TenantID:             "tenant-a",
+		MattermostEnabled:    true,
+		MattermostWebhookURL: "https://mm.example.com/hooks/abc",
+		MattermostChannel:    "oncall",
+		EmailEnabled:         true,
+	}
+	h := handler.New(st, nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(withAuthMethod(auth.MethodUser, newTenantRouter(h)))
+	defer srv.Close()
+
+	// Email section saves only its own fields — Mattermost must survive.
+	body := `{"email_enabled":false,"smtp_from":"ops@acme.com","email_reply_to":"reply@acme.com","email_subject_prefix":"[ACME]"}`
+	req, _ := http.NewRequest(http.MethodPut,
+		srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	saved := st.notifCfg["tenant-a"]
+	if saved.MattermostWebhookURL != "https://mm.example.com/hooks/abc" || saved.MattermostChannel != "oncall" {
+		t.Errorf("mattermost section clobbered: %+v", saved)
+	}
+	if saved.EmailEnabled != false {
+		t.Errorf("email_enabled=false not saved: %+v", saved)
+	}
+	if saved.SMTPFrom != "ops@acme.com" || saved.EmailReplyTo != "reply@acme.com" || saved.EmailSubjectPrefix != "[ACME]" {
+		t.Errorf("email fields not saved: %+v", saved)
+	}
+}
+
 func TestTenantCRUD(t *testing.T) {
 	srv, st := newTenantSrv(t)
 	defer srv.Close()

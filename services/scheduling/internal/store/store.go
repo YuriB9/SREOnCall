@@ -393,17 +393,23 @@ func (s *Store) GetUserBySub(ctx context.Context, sub string) (username string, 
 
 type NotificationConfig struct {
 	TenantID             string `json:"tenant_id"`
+	MattermostEnabled    bool   `json:"mattermost_enabled"`
 	MattermostWebhookURL string `json:"mattermost_webhook_url"`
 	MattermostChannel    string `json:"mattermost_channel"`
 	SMTPFrom             string `json:"smtp_from"`
+	EmailEnabled         bool   `json:"email_enabled"`
+	EmailReplyTo         string `json:"email_reply_to"`
+	EmailSubjectPrefix   string `json:"email_subject_prefix"`
 }
 
 func (s *Store) GetNotificationConfig(ctx context.Context, tenantID string) (*NotificationConfig, error) {
 	c := &NotificationConfig{TenantID: tenantID}
 	err := s.db.QueryRow(ctx,
-		`SELECT mattermost_webhook_url, mattermost_channel, smtp_from
+		`SELECT mattermost_enabled, mattermost_webhook_url, mattermost_channel, smtp_from,
+		        email_enabled, email_reply_to, email_subject_prefix
 		 FROM scheduling.tenant_notification_config WHERE tenant_id=$1`, tenantID,
-	).Scan(&c.MattermostWebhookURL, &c.MattermostChannel, &c.SMTPFrom)
+	).Scan(&c.MattermostEnabled, &c.MattermostWebhookURL, &c.MattermostChannel, &c.SMTPFrom,
+		&c.EmailEnabled, &c.EmailReplyTo, &c.EmailSubjectPrefix)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("%w: notification config for tenant %s", ErrNotFound, tenantID)
 	}
@@ -413,11 +419,14 @@ func (s *Store) GetNotificationConfig(ctx context.Context, tenantID string) (*No
 func (s *Store) UpsertNotificationConfig(ctx context.Context, c *NotificationConfig) error {
 	_, err := s.db.Exec(ctx,
 		`INSERT INTO scheduling.tenant_notification_config
-		    (tenant_id, mattermost_webhook_url, mattermost_channel, smtp_from, updated_at)
-		 VALUES ($1,$2,$3,$4,now())
+		    (tenant_id, mattermost_enabled, mattermost_webhook_url, mattermost_channel, smtp_from,
+		     email_enabled, email_reply_to, email_subject_prefix, updated_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
 		 ON CONFLICT (tenant_id) DO UPDATE
-		 SET mattermost_webhook_url=$2, mattermost_channel=$3, smtp_from=$4, updated_at=now()`,
-		c.TenantID, c.MattermostWebhookURL, c.MattermostChannel, c.SMTPFrom,
+		 SET mattermost_enabled=$2, mattermost_webhook_url=$3, mattermost_channel=$4, smtp_from=$5,
+		     email_enabled=$6, email_reply_to=$7, email_subject_prefix=$8, updated_at=now()`,
+		c.TenantID, c.MattermostEnabled, c.MattermostWebhookURL, c.MattermostChannel, c.SMTPFrom,
+		c.EmailEnabled, c.EmailReplyTo, c.EmailSubjectPrefix,
 	)
 	return err
 }
