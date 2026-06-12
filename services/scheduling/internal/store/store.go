@@ -315,6 +315,34 @@ func (s *Store) ListWebhookTokens(ctx context.Context, tenantID string) ([]*doma
 	return result, rows.Err()
 }
 
+// TokenHashEntry pairs a webhook token hash with the tenant slug it resolves to.
+type TokenHashEntry struct {
+	Hash     string
+	TenantID string
+}
+
+// ListWebhookTokenHashes returns (token_hash, tenant_id) pairs for every row in
+// scheduling.tenant_webhook_tokens, across all tenants. Used to rehydrate the
+// Redis token index on startup.
+func (s *Store) ListWebhookTokenHashes(ctx context.Context) ([]TokenHashEntry, error) {
+	rows, err := s.db.Query(ctx,
+		`SELECT token_hash, tenant_id FROM scheduling.tenant_webhook_tokens`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []TokenHashEntry
+	for rows.Next() {
+		var e TokenHashEntry
+		if err := rows.Scan(&e.Hash, &e.TenantID); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) DeleteWebhookToken(ctx context.Context, tenantID, id string) (string, error) {
 	var tokenHash string
 	err := s.db.QueryRow(ctx,

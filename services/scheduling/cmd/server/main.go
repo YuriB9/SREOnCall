@@ -62,7 +62,27 @@ func main() {
 	// ── Token index (Redis) ───────────────────────────────────────────────────
 	var tidx handler.TokenIndex
 	if rdb != nil {
-		tidx = tokenindex.New(rdb)
+		idx := tokenindex.New(rdb)
+		tidx = idx
+		// Rehydrate the Redis token index from Postgres (source of truth) so that
+		// previously issued tokens keep resolving after a Redis restart/flush.
+		// Runs before ListenAndServe; failures degrade to a warning, never os.Exit.
+		hashes, err := st.ListWebhookTokenHashes(ctx)
+		if err != nil {
+			logger.Warn("webhook token index rehydration: read from postgres failed", "err", err)
+		} else {
+			entries := make([]tokenindex.Entry, len(hashes))
+			for i, h := range hashes {
+				entries[i] = tokenindex.Entry{Hash: h.Hash, TenantID: h.TenantID}
+			}
+			if err := idx.SetMany(ctx, entries); err != nil {
+				logger.Warn("webhook token index rehydration: write to redis failed", "err", err)
+			} else {
+				logger.Info("webhook token index rehydrated", "count", len(entries))
+			}
+		}
+	} else {
+		logger.Warn("redis unavailable — webhook token index rehydration skipped")
 	}
 
 	h := handler.New(st, membersClient, tidx, logger)
