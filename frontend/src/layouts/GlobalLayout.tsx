@@ -1,5 +1,6 @@
-import { Bell, BellOff, Calendar, GitBranch, LogOut, Moon, Settings, Siren, Sun } from 'lucide-react'
-import { Link, NavLink, Outlet, useParams } from 'react-router-dom'
+import { Bell, BellOff, Calendar, ChevronDown, ChevronRight, GitBranch, LogOut, Moon, Settings, Siren, Sun } from 'lucide-react'
+import { useState } from 'react'
+import { NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 
 import { SessionBanner } from '@/auth/SessionBanner'
 import { useAuth } from '@/auth/useAuth'
@@ -14,6 +15,12 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
   )
 
+const subNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    'flex items-center rounded-md py-1.5 pl-9 pr-3 text-sm font-medium transition-colors',
+    isActive ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+  )
+
 export function GlobalLayout() {
   const { tenant } = useParams<{ tenant: string }>()
   const { user, signOut } = useAuth()
@@ -21,6 +28,11 @@ export function GlobalLayout() {
   const isAdmin = tenant ? permissions[tenant] === 'admin' : false
   const { scheme, toggle: toggleTheme } = useTheme()
   const [audioEnabled, setAudioEnabled] = useAudioEnabled()
+
+  const location = useLocation()
+  const [settingsOpen, setSettingsOpen] = useState(
+    tenant ? location.pathname.startsWith(`/${tenant}/settings`) : false,
+  )
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
@@ -47,12 +59,45 @@ export function GlobalLayout() {
                 <GitBranch size={16} />
                 Эскалации
               </NavLink>
-              {isAdmin && (
-                <NavLink to={`/${tenant}/settings`} className={navLinkClass}>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen((o) => !o)}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                  )}
+                  aria-expanded={settingsOpen}
+                >
                   <Settings size={16} />
                   Настройки
-                </NavLink>
-              )}
+                  {settingsOpen ? (
+                    <ChevronDown size={14} className="ml-auto" />
+                  ) : (
+                    <ChevronRight size={14} className="ml-auto" />
+                  )}
+                </button>
+                {settingsOpen && (
+                  <div className="mt-1 flex flex-col gap-1">
+                    <NavLink to={`/${tenant}/settings/profile`} className={subNavLinkClass}>
+                      Мой профиль
+                    </NavLink>
+                    {isAdmin && (
+                      <>
+                        <NavLink to={`/${tenant}/settings/webhook-tokens`} className={subNavLinkClass}>
+                          Webhook-токены
+                        </NavLink>
+                        <NavLink to={`/${tenant}/settings/notifications`} className={subNavLinkClass}>
+                          Конфигурация уведомлений
+                        </NavLink>
+                        <NavLink to={`/${tenant}/settings/members`} className={subNavLinkClass}>
+                          Участники команды
+                        </NavLink>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </nav>
           )}
         </aside>
@@ -61,13 +106,9 @@ export function GlobalLayout() {
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Header */}
           <header className="flex h-12 flex-shrink-0 items-center justify-end gap-3 border-b px-4">
-            <Link
-              to="/profile"
-              className="mr-auto text-sm text-muted-foreground hover:text-foreground hover:underline"
-              title="Мой профиль"
-            >
+            <span className="mr-auto text-sm text-muted-foreground">
               {user?.profile.preferred_username}
-            </Link>
+            </span>
 
             <button
               onClick={() => setAudioEnabled(!audioEnabled)}

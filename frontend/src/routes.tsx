@@ -14,7 +14,9 @@ import { RootRedirectPage } from '@/pages/RootRedirectPage'
 import { SchedulesPage } from '@/pages/SchedulesPage'
 import { SelectTeamPage } from '@/pages/SelectTeamPage'
 import { SilentRenewPage } from '@/pages/SilentRenewPage'
-import { TenantSettingsPage } from '@/pages/TenantSettingsPage'
+import { MembersPage } from '@/pages/settings/MembersPage'
+import { NotificationConfigPage } from '@/pages/settings/NotificationConfigPage'
+import { WebhookTokensPage } from '@/pages/settings/WebhookTokensPage'
 
 export const router = createBrowserRouter([
   // Public routes — no auth required
@@ -32,7 +34,6 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <RootRedirectPage /> },
       { path: 'select-team', element: <SelectTeamPage /> },
-      { path: 'profile', element: <ProfilePage /> },
 
       // Tenant-scoped routes
       {
@@ -51,11 +52,24 @@ export const router = createBrowserRouter([
           { path: 'escalations/:policyId/edit', element: <PolicyEditorPage /> },
           {
             path: 'settings',
-            element: (
-              <AdminGuard>
-                <TenantSettingsPage />
-              </AdminGuard>
-            ),
+            children: [
+              // Profile is reachable by every member — kept outside AdminGuard.
+              { path: 'profile', element: <ProfilePage /> },
+              // Admin-only settings sections share a single guard via the pathless route.
+              {
+                element: (
+                  <AdminGuard>
+                    <Outlet />
+                  </AdminGuard>
+                ),
+                children: [
+                  { index: true, element: <Navigate to="webhook-tokens" replace /> },
+                  { path: 'webhook-tokens', element: <WebhookTokensPage /> },
+                  { path: 'notifications', element: <NotificationConfigPage /> },
+                  { path: 'members', element: <MembersPage /> },
+                ],
+              },
+            ],
           },
         ],
       },
