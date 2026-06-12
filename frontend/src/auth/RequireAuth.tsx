@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 
 import { AuthErrorScreen } from './AuthErrorScreen'
+import { logoutInProgress } from './oidcConfig'
 import { useAuth } from './useAuth'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
@@ -17,7 +18,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }, [signIn])
 
   useEffect(() => {
-    if (!loading && !user && !signInFailed) {
+    // logoutInProgress: во время выхода signoutRedirect удаляет пользователя
+    // до навигации; без этой проверки мы запустили бы вход и перехватили
+    // logout, молча залогинив обратно.
+    if (!loading && !user && !signInFailed && !logoutInProgress.current) {
       attemptSignIn()
     }
   }, [loading, user, signInFailed, attemptSignIn])
