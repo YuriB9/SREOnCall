@@ -41,5 +41,5 @@
 - [x] 6.3 `go test ./...` всех модулей (особенно existing handler-тесты на `errors.Is`).
 - [x] 6.4 `golangci-lint run` (`--new-from-merge-base main`) — 0 new issues.
 - [x] 6.5 `govulncheck ./...` — чисто.
-- [ ] 6.6 `/opsx:verify` → `/opsx:archive --skip-specs` (no-delta infra).
-- [ ] 6.7 Обновить статус CH06 в `docs/audit/00-roadmap.md` (дашборд + строка чейнджа).
+- [x] 6.6 `/opsx:verify` → `/opsx:archive --skip-specs` (no-delta infra).
+- [x] 6.7 Обновить статус CH06 в `docs/audit/00-roadmap.md` (дашборд + строка чейнджа).
