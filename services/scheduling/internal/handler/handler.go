@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/sre-oncall/pkg/auth"
+	"github.com/sre-oncall/pkg/ssrf"
 	"github.com/sre-oncall/scheduling/internal/domain"
 	"github.com/sre-oncall/scheduling/internal/rotation"
 	"github.com/sre-oncall/scheduling/internal/store"
@@ -703,6 +704,12 @@ func (h *Handler) PutTenantNotificationConfig(w http.ResponseWriter, r *http.Req
 		cur.MattermostEnabled = *patch.MattermostEnabled
 	}
 	if patch.MattermostWebhookURL != nil && *patch.MattermostWebhookURL != "" {
+		// Guard against SSRF: a tenant admin must not point the webhook at an
+		// internal address. Only https + public hosts are accepted (S2).
+		if err := ssrf.ValidateURL(r.Context(), *patch.MattermostWebhookURL); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid mattermost_webhook_url: must be https and point to a public address")
+			return
+		}
 		cur.MattermostWebhookURL = *patch.MattermostWebhookURL
 	}
 	if patch.MattermostChannel != nil {

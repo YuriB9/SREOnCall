@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
+
+	"github.com/sre-oncall/pkg/ssrf"
 )
 
 type Mattermost struct {
@@ -14,7 +17,12 @@ type Mattermost struct {
 }
 
 func NewMattermost() *Mattermost {
-	return &Mattermost{httpClient: &http.Client{Timeout: 10 * time.Second}}
+	// Defense in depth against SSRF (S2): even if a private/non-public URL was
+	// stored before validation existed, or a redirect points at one, the guarded
+	// dialer refuses the connection at dial time.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = ssrf.GuardedDialContext(&net.Dialer{Timeout: 10 * time.Second})
+	return &Mattermost{httpClient: &http.Client{Timeout: 10 * time.Second, Transport: transport}}
 }
 
 func (d *Mattermost) Send(ctx context.Context, webhookURL, channel, text string) error {

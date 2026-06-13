@@ -26,7 +26,7 @@
 | CH01 | add-ci-and-quality-gates | 0 | — | ✅ |
 | CH02 | bump-vulnerable-auth-deps | 0 | — | ✅ |
 | CH03 | harden-auth-validation | 1 | CH01 | ✅ |
-| CH04 | guard-webhook-ssrf | 1 | CH01 | ☐ |
+| CH04 | guard-webhook-ssrf | 1 | CH01 | ✅ |
 | CH05 | extract-bus-contracts | 2 | CH01 | ☐ |
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ☐ |
 | CH07 | consumer-resilience | 3 | CH05 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **3 / 19** done.
+Прогресс: **4 / 19** done.
 
 ---
 
@@ -96,10 +96,28 @@
 > - `ingestion` вне объёма (webhook-token auth, JWT-middleware не использует).
 > - Проверки: `go build/vet/test` всех модулей, `-race ./pkg/auth`, `golangci-lint` (0 new issues), `govulncheck` (0 достижимых) — чисто.
 
-### CH04 · `guard-webhook-ssrf` 🟢
+### CH04 · `guard-webhook-ssrf` 🟢 — ✅ done (2026-06-13)
 **Корень:** SSRF через подконтрольный тенанту URL.
 **Закрывает:** S2 (валидация Mattermost webhook URL: только https + блок приватных/loopback/link-local — на записи в scheduling и на отправке в notification).
 **Зависит от:** CH01. Самостоятельный.
+
+> **Реализовано.** Чейндж `guard-webhook-ssrf`. См. ADR-0013.
+> Что важно для следующих сессий:
+> - **Новый общий пакет `pkg/ssrf`**: `ValidateURL(ctx, raw)` (https + резолв + блок
+>   private/loopback/link-local/unspecified/multicast/ULA) и `GuardedDialContext(base)`
+>   (блок приватного IP на дозвоне — ловит TOCTOU/DNS-rebinding/редиректы). Sentinel-ошибки
+>   `ErrNotHTTPS`/`ErrBlockedAddress`/`ErrInvalidURL`. Переиспользуем для других исходящих
+>   тенант-задаваемых URL.
+> - **scheduling** валидирует непустой `mattermost_webhook_url` на PUT → **422** на небезопасный URL
+>   (`handler.go` `PutTenantNotificationConfig`). **Только https** — http-вебхуки больше не принимаются.
+> - **notification** применяет `GuardedDialContext` к http-клиенту Mattermost-диспетчера
+>   (`dispatcher/mattermost.go`) — defense in depth для уже сохранённых URL.
+> - **Стратегия — блок приватных диапазонов** (не allowlist доменов): работает с self-hosted
+>   Mattermost. Уже сохранённые небезопасные URL не мигрируются — блокируются на отправке (`failed`).
+> - **Тесты офлайн:** в хендлер-тестах webhook-URL заменены на литеральный публичный IP `203.0.113.10`
+>   (TEST-NET-3), чтобы валидатор не дёргал DNS. Учесть в новых тестах, трогающих эти пути.
+> - Проверки: `go build/vet/test` (pkg/scheduling/notification), `golangci-lint` (0 new issues),
+>   `govulncheck` (0 достижимых) — чисто.
 
 ---
 
