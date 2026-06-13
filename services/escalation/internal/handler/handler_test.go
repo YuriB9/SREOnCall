@@ -15,9 +15,9 @@ import (
 	"github.com/sre-oncall/escalation/internal/domain"
 	"github.com/sre-oncall/escalation/internal/escalator"
 	"github.com/sre-oncall/escalation/internal/handler"
-	"github.com/sre-oncall/escalation/internal/publisher"
 	"github.com/sre-oncall/escalation/internal/schedclient"
 	"github.com/sre-oncall/escalation/internal/store"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── In-memory store ───────────────────────────────────────────────────────────
@@ -173,14 +173,14 @@ func (noopSched) GetOnCall(_ context.Context, _, _ string) (*schedclient.OncallR
 }
 
 type noopPub struct {
-	triggered []publisher.TriggeredEvent
+	triggered []events.EscalationTriggered
 }
 
-func (p *noopPub) PublishTriggered(_ context.Context, ev publisher.TriggeredEvent) error {
+func (p *noopPub) PublishTriggered(_ context.Context, ev events.EscalationTriggered) error {
 	p.triggered = append(p.triggered, ev)
 	return nil
 }
-func (p *noopPub) PublishExhausted(_ context.Context, _ publisher.ExhaustedEvent) error {
+func (p *noopPub) PublishExhausted(_ context.Context, _ events.EscalationExhausted) error {
 	return nil
 }
 

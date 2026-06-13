@@ -11,29 +11,8 @@ import (
 	"github.com/sre-oncall/notification/internal/domain"
 	"github.com/sre-oncall/notification/internal/schedclient"
 	"github.com/sre-oncall/notification/internal/store"
+	"github.com/sre-oncall/pkg/events"
 )
-
-// TriggeredEvent mirrors the escalation.triggered payload. Incident fields
-// may be absent in events from older escalation versions — senders fall back
-// to ID+tier content.
-type TriggeredEvent struct {
-	IncidentID       string `json:"incident_id"`
-	TenantID         string `json:"tenant_id"`
-	TenantSlug       string `json:"tenant_slug"`
-	Tier             int    `json:"tier"`
-	OncallUserID     string `json:"oncall_user_id"`
-	OncallUsername   string `json:"oncall_username"`
-	IncidentTitle    string `json:"incident_title"`
-	IncidentSeverity string `json:"incident_severity"`
-	IncidentStatus   string `json:"incident_status"`
-}
-
-// ExhaustedEvent mirrors the escalation.exhausted payload.
-type ExhaustedEvent struct {
-	IncidentID string `json:"incident_id"`
-	TenantID   string `json:"tenant_id"`
-	TenantSlug string `json:"tenant_slug"`
-}
 
 type Store interface {
 	GetContact(ctx context.Context, tenantID, userID string) (*domain.UserContact, error)
@@ -101,7 +80,7 @@ func (n *Notifier) incidentLink(tenantSlug, incidentID string) string {
 }
 
 // NotifyTriggered handles escalation.triggered: notifies the on-call user via enabled channels.
-func (n *Notifier) NotifyTriggered(ctx context.Context, ev TriggeredEvent) error {
+func (n *Notifier) NotifyTriggered(ctx context.Context, ev events.EscalationTriggered) error {
 	if ev.OncallUserID == "" {
 		n.logger.Warn("triggered event has no oncall_user_id — skipping user notifications",
 			"incident_id", ev.IncidentID)
@@ -125,7 +104,7 @@ func (n *Notifier) NotifyTriggered(ctx context.Context, ev TriggeredEvent) error
 }
 
 // NotifyExhausted handles escalation.exhausted: posts to the tenant's Mattermost channel.
-func (n *Notifier) NotifyExhausted(ctx context.Context, ev ExhaustedEvent) error {
+func (n *Notifier) NotifyExhausted(ctx context.Context, ev events.EscalationExhausted) error {
 	cfg, err := n.cache.Get(ctx, ev.TenantSlug)
 	if err != nil {
 		n.logger.Warn("tenant cache fetch failed", "tenant_slug", ev.TenantSlug, "err", err)
@@ -171,7 +150,7 @@ func (n *Notifier) NotifyExhausted(ctx context.Context, ev ExhaustedEvent) error
 // dispatchToContact sends notifications via all enabled_channels for the contact.
 func (n *Notifier) dispatchToContact(
 	ctx context.Context,
-	ev TriggeredEvent,
+	ev events.EscalationTriggered,
 	contact *domain.UserContact,
 	cfg *schedclient.TenantNotificationConfig,
 ) {
@@ -251,7 +230,7 @@ func (n *Notifier) dispatchToContact(
 
 // mattermostText formats the on-call notification. With enriched payload it
 // carries title, severity and status; otherwise it falls back to ID+tier.
-func mattermostText(mention, link string, ev TriggeredEvent) string {
+func mattermostText(mention, link string, ev events.EscalationTriggered) string {
 	var b strings.Builder
 	if ev.IncidentTitle != "" {
 		fmt.Fprintf(&b, "%s:rotating_light: [%s] %s\n", mention, ev.IncidentSeverity, ev.IncidentTitle)

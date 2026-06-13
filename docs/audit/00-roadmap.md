@@ -27,7 +27,7 @@
 | CH02 | bump-vulnerable-auth-deps | 0 | — | ✅ |
 | CH03 | harden-auth-validation | 1 | CH01 | ✅ |
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ✅ |
-| CH05 | extract-bus-contracts | 2 | CH01 | ☐ |
+| CH05 | extract-bus-contracts | 2 | CH01 | ✅ |
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ☐ |
 | CH07 | consumer-resilience | 3 | CH05 | ☐ |
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **4 / 19** done.
+Прогресс: **5 / 19** done.
 
 ---
 
@@ -123,11 +123,21 @@
 
 ## Фаза 2 — Общие `pkg/*` энейблеры (сокращают диффы дальше)
 
-### CH05 · `extract-bus-contracts` 🟡
+### CH05 · `extract-bus-contracts` 🟡 — ✅ done (2026-06-13)
 **Корень:** контракт шины размазан копипастой.
 **Закрывает:** F1 (`pkg/events` — канонические payload'ы событий), F8 (incident переиспользует `pkg/domain.AlertStatus`), часть N4 (согласование имён статусов между пакетами).
 **Содержимое:** новый `pkg/events`, удаление дублей `TriggeredEvent`/`ExhaustedEvent`/`IncidentEvent`/`incidentPayload`. Механически, но трогает publisher/consumer всех сервисов.
 **Зависит от:** CH01. Делать **до** CH07 (консьюмеры начнут использовать канонические типы).
+
+> **Реализовано.** Чейндж `extract-bus-contracts` (no-delta infra-рефактор, архив с `--skip-specs`). См. ADR-0014.
+> Что важно для следующих сессий:
+> - **Новый пакет `pkg/events`** (модуль `github.com/sre-oncall/pkg`, без нового go.mod) — единственный источник правды payload'ов: `EscalationTriggered` (`escalation.triggered`), `EscalationExhausted` (`escalation.exhausted`), `IncidentChanged` (`incident.created`/`updated`). Продюсеры/консьюмеры/интерфейсы `Publisher` уже ссылаются на эти типы; локальные дубли удалены.
+> - **Для CH07** (`consumer-resilience`): консьюмеры всех сервисов `Unwrap` в `events.*` — переработку `pkg/amqp.Consume` строить вокруг этих канонических типов, не возвращать локальные payload-структуры.
+> - **Для CH13** (`distributed-tracing`): проброс trace-context — через `pkg/amqp.Envelope`, payload'ы (`pkg/events`) не трогать.
+> - **Wire-формат НЕ менялся** (JSON-теги перенесены 1:1) — **не BREAKING**, сообщения в очередях/от старых версий читаются как прежде. Смена JSON-тегов в `pkg/events` в будущем = BREAKING для очередей (помечать).
+> - **F8/N4:** `incident/internal/domain` больше не объявляет `AlertStatus` — используется `pkg/domain.AlertStatus` (`AlertStatusFiring`/`AlertStatusResolved`). Инцидент-специфичный `domain.Status` (open/ack/resolved) остался. `alert.received` вне области (уже несёт `pkg/domain.Alert`).
+> - **Остаток N4** (zero-value `Unknown`, префиксы sentinel'ов) — НЕ трогался, остаётся за **CH18**.
+> - Проверки: `go build/vet/test` (pkg/escalation/incident/notification), `golangci-lint --new-from-merge-base main` (0 new issues), `go mod tidy` без диффа — чисто. Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
 ### CH06 · `extract-shared-config-and-httpclient` 🟢
 **Корень:** дублирование инфраструктурного кода + расхождение клиентов.

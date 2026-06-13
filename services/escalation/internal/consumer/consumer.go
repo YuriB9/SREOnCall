@@ -8,17 +8,8 @@ import (
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/sre-oncall/escalation/internal/escalator"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
+	"github.com/sre-oncall/pkg/events"
 )
-
-// incidentPayload matches the incident.created / incident.updated envelope payload.
-type incidentPayload struct {
-	IncidentID string `json:"incident_id"`
-	TenantID   string `json:"tenant_id"`
-	TenantSlug string `json:"tenant_slug"`
-	Status     string `json:"status"`
-	Title      string `json:"title"`
-	Severity   string `json:"severity"`
-}
 
 type Consumer struct {
 	escalate *escalator.Escalator
@@ -61,7 +52,7 @@ func (c *Consumer) Run(ctx context.Context, conn *pkgamqp.Connection) error {
 }
 
 func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
-	var payload incidentPayload
+	var payload events.IncidentChanged
 	env, err := pkgamqp.Unwrap(msg.Body, &payload)
 	if err != nil {
 		c.logger.Error("consumer: unwrap", "err", err)
@@ -101,7 +92,7 @@ func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
 
 // ProcessDelivery processes a single delivery (exposed for integration testing).
 func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
-	var payload incidentPayload
+	var payload events.IncidentChanged
 	env, err := pkgamqp.Unwrap(body, &payload)
 	if err != nil {
 		return fmt.Errorf("unwrap: %w", err)

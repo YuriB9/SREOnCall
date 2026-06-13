@@ -10,10 +10,10 @@ import (
 	"github.com/sre-oncall/escalation/internal/consumer"
 	"github.com/sre-oncall/escalation/internal/domain"
 	"github.com/sre-oncall/escalation/internal/escalator"
-	"github.com/sre-oncall/escalation/internal/publisher"
 	"github.com/sre-oncall/escalation/internal/schedclient"
 	"github.com/sre-oncall/escalation/internal/store"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── In-memory store (escalator.Store subset) ─────────────────────────────────
@@ -96,14 +96,14 @@ func (stubSched) GetOnCall(_ context.Context, _, _ string) (*schedclient.OncallR
 }
 
 type capturePub struct {
-	triggered []publisher.TriggeredEvent
+	triggered []events.EscalationTriggered
 }
 
-func (p *capturePub) PublishTriggered(_ context.Context, ev publisher.TriggeredEvent) error {
+func (p *capturePub) PublishTriggered(_ context.Context, ev events.EscalationTriggered) error {
 	p.triggered = append(p.triggered, ev)
 	return nil
 }
-func (p *capturePub) PublishExhausted(_ context.Context, _ publisher.ExhaustedEvent) error {
+func (p *capturePub) PublishExhausted(_ context.Context, _ events.EscalationExhausted) error {
 	return nil
 }
 

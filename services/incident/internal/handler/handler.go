@@ -12,10 +12,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
-	"github.com/sre-oncall/incident/internal/publisher"
 	"github.com/sre-oncall/incident/internal/statemachine"
 	"github.com/sre-oncall/incident/internal/store"
 	"github.com/sre-oncall/pkg/auth"
+	"github.com/sre-oncall/pkg/domain"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // Store is the full store interface used by REST handlers.
@@ -40,8 +41,8 @@ type Store interface {
 
 // Publisher publishes incident events.
 type Publisher interface {
-	PublishCreated(ctx context.Context, ev publisher.IncidentEvent) error
-	PublishUpdated(ctx context.Context, ev publisher.IncidentEvent) error
+	PublishCreated(ctx context.Context, ev events.IncidentChanged) error
+	PublishUpdated(ctx context.Context, ev events.IncidentChanged) error
 }
 
 type Handler struct {
@@ -192,7 +193,7 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 		NewValue:   string(newStatus),
 	})
 
-	ev := publisher.IncidentEvent{
+	ev := events.IncidentChanged{
 		IncidentID: updated.ID,
 		TenantID:   updated.TenantID,
 		TenantSlug: tenantSlug(r),
@@ -232,7 +233,7 @@ func (h *Handler) AttachAlert(w http.ResponseWriter, r *http.Request) {
 		TenantID:    tenantID,
 		Fingerprint: body.Fingerprint,
 		Source:      body.Source,
-		Status:      incdomain.AlertFiring,
+		Status:      domain.AlertStatusFiring,
 	}
 	if err := h.store.AttachAlert(r.Context(), ia); err != nil {
 		h.logger.Error("attach alert", "err", err)

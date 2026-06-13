@@ -9,6 +9,7 @@ import (
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/sre-oncall/notification/internal/notifier"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
+	"github.com/sre-oncall/pkg/events"
 )
 
 type Consumer struct {
@@ -68,14 +69,14 @@ func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
 
 	switch env.Type {
 	case pkgamqp.RoutingKeyEscalationTriggered:
-		var ev notifier.TriggeredEvent
+		var ev events.EscalationTriggered
 		if _, err := pkgamqp.Unwrap(body, &ev); err != nil {
 			return fmt.Errorf("consumer: unwrap triggered: %w", err)
 		}
 		return c.notifier.NotifyTriggered(ctx, ev)
 
 	case pkgamqp.RoutingKeyEscalationExhausted:
-		var ev notifier.ExhaustedEvent
+		var ev events.EscalationExhausted
 		if _, err := pkgamqp.Unwrap(body, &ev); err != nil {
 			return fmt.Errorf("consumer: unwrap exhausted: %w", err)
 		}

@@ -9,9 +9,9 @@ import (
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/sre-oncall/incident/internal/consumer"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
-	"github.com/sre-oncall/incident/internal/publisher"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/pkg/domain"
+	"github.com/sre-oncall/pkg/events"
 
 	"log/slog"
 	"os"
@@ -47,7 +47,7 @@ func (m *memStore) GetGroupingRule(_ context.Context, tenantID, source string) (
 
 func (m *memStore) FindOpenIncidentByGroupKey(_ context.Context, tenantID, groupKey string) (string, error) {
 	for _, ia := range m.alerts {
-		if ia.TenantID == tenantID && ia.GroupKey == groupKey && ia.Status == incdomain.AlertFiring {
+		if ia.TenantID == tenantID && ia.GroupKey == groupKey && ia.Status == domain.AlertStatusFiring {
 			if inc, ok := m.incidents[ia.IncidentID]; ok && inc.Status != incdomain.StatusResolved {
 				return ia.IncidentID, nil
 			}
@@ -77,8 +77,8 @@ func (m *memStore) AppendHistory(_ context.Context, _ *incdomain.HistoryEntry) e
 
 func (m *memStore) ResolveAlert(_ context.Context, tenantID, fingerprint string) (string, error) {
 	for _, ia := range m.alerts {
-		if ia.TenantID == tenantID && ia.Fingerprint == fingerprint && ia.Status == incdomain.AlertFiring {
-			ia.Status = incdomain.AlertResolved
+		if ia.TenantID == tenantID && ia.Fingerprint == fingerprint && ia.Status == domain.AlertStatusFiring {
+			ia.Status = domain.AlertStatusResolved
 			return ia.IncidentID, nil
 		}
 	}
@@ -87,7 +87,7 @@ func (m *memStore) ResolveAlert(_ context.Context, tenantID, fingerprint string)
 
 func (m *memStore) MaybeResolve(_ context.Context, tenantID, incidentID string) (bool, error) {
 	for _, ia := range m.alerts {
-		if ia.IncidentID == incidentID && ia.Status == incdomain.AlertFiring {
+		if ia.IncidentID == incidentID && ia.Status == domain.AlertStatusFiring {
 			return false, nil
 		}
 	}
@@ -108,16 +108,16 @@ func (m *memStore) GetIncident(_ context.Context, tenantID, id string) (*incdoma
 // ── Publisher stub ────────────────────────────────────────────────────────────
 
 type capturePublisher struct {
-	created []publisher.IncidentEvent
-	updated []publisher.IncidentEvent
+	created []events.IncidentChanged
+	updated []events.IncidentChanged
 }
 
-func (p *capturePublisher) PublishCreated(_ context.Context, ev publisher.IncidentEvent) error {
+func (p *capturePublisher) PublishCreated(_ context.Context, ev events.IncidentChanged) error {
 	p.created = append(p.created, ev)
 	return nil
 }
 
-func (p *capturePublisher) PublishUpdated(_ context.Context, ev publisher.IncidentEvent) error {
+func (p *capturePublisher) PublishUpdated(_ context.Context, ev events.IncidentChanged) error {
 	p.updated = append(p.updated, ev)
 	return nil
 }

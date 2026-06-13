@@ -14,6 +14,7 @@ import (
 	"github.com/sre-oncall/notification/internal/notifier"
 	"github.com/sre-oncall/notification/internal/schedclient"
 	"github.com/sre-oncall/notification/internal/store"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── Stubs ──────────────────────────────────────────────────────────────────────
@@ -105,7 +106,7 @@ func TestNotifyTriggered_EmailChannel(t *testing.T) {
 	email := &stubEmail{}
 	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: true}, email, &stubMattermost{})
 
-	err := n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	err := n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-1",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -137,7 +138,7 @@ func TestNotifyTriggered_ConfigCacheError_EmailStillDelivered(t *testing.T) {
 	cache := &stubCache{err: errors.New("cache unavailable")}
 	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, &stubMattermost{})
 
-	if err := n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	if err := n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-1",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -165,7 +166,7 @@ func TestNotifyTriggered_RateLimited(t *testing.T) {
 	email := &stubEmail{}
 	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: false}, email, &stubMattermost{})
 
-	_ = n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	_ = n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-2",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -197,7 +198,7 @@ func TestNotifyTriggered_MattermostChannel(t *testing.T) {
 	mm := &stubMattermost{}
 	n := makeNotifier(st, &stubCache{cfg: cfg}, &stubLimiter{allowed: true}, &stubEmail{}, mm)
 
-	_ = n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	_ = n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-3",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -225,7 +226,7 @@ func TestNotifyTriggered_DisabledChannelSkipped(t *testing.T) {
 	mm := &stubMattermost{} // no mattermost config → will be skipped
 	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: true}, email, mm)
 
-	_ = n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	_ = n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-4",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -243,7 +244,7 @@ func TestNotifyTriggered_NoContact(t *testing.T) {
 	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: true}, &stubEmail{}, &stubMattermost{})
 
 	// Should succeed silently (user has no contact config)
-	if err := n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	if err := n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-5",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -265,7 +266,7 @@ func TestNotifyTriggered_EmailSendFailed_LogsFailure(t *testing.T) {
 	email := &stubEmail{err: errors.New("smtp unreachable")}
 	n := makeNotifier(st, &stubCache{}, &stubLimiter{allowed: true}, email, &stubMattermost{})
 
-	_ = n.NotifyTriggered(context.Background(), notifier.TriggeredEvent{
+	_ = n.NotifyTriggered(context.Background(), events.EscalationTriggered{
 		IncidentID:   "inc-6",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -291,7 +292,7 @@ func TestNotifyExhausted_PostsToMattermostChannel(t *testing.T) {
 	mm := &stubMattermost{}
 	n := makeNotifier(st, &stubCache{cfg: cfg}, &stubLimiter{allowed: true}, &stubEmail{}, mm)
 
-	_ = n.NotifyExhausted(context.Background(), notifier.ExhaustedEvent{
+	_ = n.NotifyExhausted(context.Background(), events.EscalationExhausted{
 		IncidentID: "inc-7",
 		TenantID:   "tenant-a",
 		TenantSlug: "team-a",
@@ -309,7 +310,7 @@ func TestNotifyExhausted_NoMattermostConfig_LogsFailure(t *testing.T) {
 	st := newMemStore()
 	n := makeNotifier(st, &stubCache{cfg: nil}, &stubLimiter{allowed: true}, &stubEmail{}, &stubMattermost{})
 
-	_ = n.NotifyExhausted(context.Background(), notifier.ExhaustedEvent{
+	_ = n.NotifyExhausted(context.Background(), events.EscalationExhausted{
 		IncidentID: "inc-8",
 		TenantID:   "tenant-a",
 		TenantSlug: "team-a",
@@ -322,8 +323,8 @@ func TestNotifyExhausted_NoMattermostConfig_LogsFailure(t *testing.T) {
 
 // ── Enriched payload content (enrich-notifications) ───────────────────────────
 
-func enrichedEvent() notifier.TriggeredEvent {
-	return notifier.TriggeredEvent{
+func enrichedEvent() events.EscalationTriggered {
+	return events.EscalationTriggered{
 		IncidentID:       "inc-7",
 		TenantID:         "tenant-a",
 		TenantSlug:       "team-a",
@@ -404,7 +405,7 @@ func TestNotifyTriggered_FallbackWithoutIncidentFields(t *testing.T) {
 	n := makeNotifier(st, cache, &stubLimiter{allowed: true}, email, mm)
 
 	// Old-style event: no incident_title/severity/status.
-	ev := notifier.TriggeredEvent{IncidentID: "inc-8", TenantID: "tenant-a", TenantSlug: "team-a", Tier: 1, OncallUserID: "alice"}
+	ev := events.EscalationTriggered{IncidentID: "inc-8", TenantID: "tenant-a", TenantSlug: "team-a", Tier: 1, OncallUserID: "alice"}
 	if err := n.NotifyTriggered(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}

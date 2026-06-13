@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/sre-oncall/escalation/internal/domain"
-	"github.com/sre-oncall/escalation/internal/publisher"
 	"github.com/sre-oncall/escalation/internal/schedclient"
 	"github.com/sre-oncall/escalation/internal/store"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // Store is the subset of store.Store needed by the escalator.
@@ -28,8 +28,8 @@ type Store interface {
 
 // Publisher sends AMQP events.
 type Publisher interface {
-	PublishTriggered(ctx context.Context, ev publisher.TriggeredEvent) error
-	PublishExhausted(ctx context.Context, ev publisher.ExhaustedEvent) error
+	PublishTriggered(ctx context.Context, ev events.EscalationTriggered) error
+	PublishExhausted(ctx context.Context, ev events.EscalationExhausted) error
 }
 
 // SchedulingClient queries on-call info from the scheduling service.
@@ -114,7 +114,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 			EventType:  "exhausted",
 			Tier:       &tier,
 		})
-		if err := e.pub.PublishExhausted(ctx, publisher.ExhaustedEvent{
+		if err := e.pub.PublishExhausted(ctx, events.EscalationExhausted{
 			IncidentID: st.IncidentID,
 			TenantID:   st.TenantID,
 			TenantSlug: st.TenantSlug,
@@ -225,7 +225,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 		OncallUsername: username,
 	})
 
-	if err := e.pub.PublishTriggered(ctx, publisher.TriggeredEvent{
+	if err := e.pub.PublishTriggered(ctx, events.EscalationTriggered{
 		IncidentID:       st.IncidentID,
 		TenantID:         st.TenantID,
 		TenantSlug:       st.TenantSlug,

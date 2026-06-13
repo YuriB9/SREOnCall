@@ -14,6 +14,7 @@ import (
 	"github.com/sre-oncall/notification/internal/schedclient"
 	"github.com/sre-oncall/notification/internal/store"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ func TestConsumer_TriggeredEvent_NotifiesUser(t *testing.T) {
 	email := &captureEmail{}
 	cons := makeConsumer(st, &noopCache{}, email, &captureMM{})
 
-	body, err := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationTriggered, "tenant-a", notifier.TriggeredEvent{
+	body, err := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationTriggered, "tenant-a", events.EscalationTriggered{
 		IncidentID:   "inc-1",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -112,7 +113,7 @@ func TestConsumer_TriggeredEvent_NoContact_NoError(t *testing.T) {
 	email := &captureEmail{}
 	cons := makeConsumer(st, &noopCache{}, email, &captureMM{})
 
-	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationTriggered, "tenant-a", notifier.TriggeredEvent{
+	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationTriggered, "tenant-a", events.EscalationTriggered{
 		IncidentID:   "inc-2",
 		TenantID:     "tenant-a",
 		TenantSlug:   "team-a",
@@ -138,7 +139,7 @@ func TestConsumer_ExhaustedEvent_PostsToMattermost(t *testing.T) {
 	mm := &captureMM{}
 	cons := makeConsumer(st, &noopCache{cfg: cfg}, &captureEmail{}, mm)
 
-	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationExhausted, "tenant-a", notifier.ExhaustedEvent{
+	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationExhausted, "tenant-a", events.EscalationExhausted{
 		IncidentID: "inc-3",
 		TenantID:   "tenant-a",
 		TenantSlug: "team-a",
@@ -161,7 +162,7 @@ func TestConsumer_ExhaustedEvent_NoMattermostConfig(t *testing.T) {
 	mm := &captureMM{}
 	cons := makeConsumer(st, &noopCache{cfg: nil}, &captureEmail{}, mm)
 
-	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationExhausted, "tenant-a", notifier.ExhaustedEvent{
+	body, _ := pkgamqp.Wrap(pkgamqp.RoutingKeyEscalationExhausted, "tenant-a", events.EscalationExhausted{
 		IncidentID: "inc-4",
 		TenantID:   "tenant-a",
 		TenantSlug: "team-a",
