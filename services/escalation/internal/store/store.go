@@ -8,9 +8,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sre-oncall/escalation/internal/domain"
+	"github.com/sre-oncall/pkg/errs"
 )
 
-var ErrNotFound = errors.New("not found")
+// ErrNotFound aliases the shared sentinel so errors.Is works across the
+// network boundary (e.g. a client returning errs.ErrNotFound on a 404).
+var ErrNotFound = errs.ErrNotFound
 
 type Store struct {
 	db *pgxpool.Pool

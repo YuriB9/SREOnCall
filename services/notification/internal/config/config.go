@@ -1,8 +1,9 @@
 package config
 
 import (
-	"fmt"
 	"os"
+
+	pkgconfig "github.com/sre-oncall/pkg/config"
 )
 
 type Config struct {
@@ -34,32 +35,13 @@ type Config struct {
 	RateLimitWindow int
 }
 
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-func getenvInt(key string, def int) int {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	var n int
-	if _, err := fmt.Sscanf(v, "%d", &n); err != nil || n == 0 {
-		return def
-	}
-	return n
-}
-
 func Load() Config {
 	return Config{
-		HTTPPort:          getenv("HTTP_PORT", "8084"),
-		LogLevel:          getenv("LOG_LEVEL", "info"),
+		HTTPPort:          pkgconfig.String("HTTP_PORT", "8084"),
+		LogLevel:          pkgconfig.String("LOG_LEVEL", "info"),
 		DBDSN:             os.Getenv("DB_DSN"),
 		AMQPURL:           os.Getenv("RABBITMQ_URL"),
-		RedisAddr:         getenv("REDIS_ADDR", "localhost:6379"),
+		RedisAddr:         pkgconfig.String("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
 		AdminKey:          os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL:   os.Getenv("KEYCLOAK_JWKS_URL"),
@@ -67,17 +49,17 @@ func Load() Config {
 		KeycloakAudience:  os.Getenv("KEYCLOAK_AUDIENCE"),
 		AuthDisabled:      os.Getenv("AUTH_DISABLED") == "true",
 		AllowInsecureJWKS: os.Getenv("AUTH_INSECURE") == "true",
-		SchedulingURL:     getenv("SCHEDULING_URL", "http://localhost:8082"),
+		SchedulingURL:     pkgconfig.String("SCHEDULING_URL", "http://localhost:8082"),
 
 		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
 		FrontendBaseURL:    os.Getenv("FRONTEND_BASE_URL"),
 
-		SMTPHost:        getenv("SMTP_HOST", "localhost"),
-		SMTPPort:        getenv("SMTP_PORT", "25"),
+		SMTPHost:        pkgconfig.String("SMTP_HOST", "localhost"),
+		SMTPPort:        pkgconfig.String("SMTP_PORT", "25"),
 		SMTPUsername:    os.Getenv("SMTP_USERNAME"),
 		SMTPPassword:    os.Getenv("SMTP_PASSWORD"),
-		SMTPFrom:        getenv("SMTP_FROM", "oncall@example.com"),
-		RateLimitMax:    getenvInt("RATE_LIMIT_MAX", 5),
-		RateLimitWindow: getenvInt("RATE_LIMIT_WINDOW_SECONDS", 600),
+		SMTPFrom:        pkgconfig.String("SMTP_FROM", "oncall@example.com"),
+		RateLimitMax:    pkgconfig.Int("RATE_LIMIT_MAX", 5),
+		RateLimitWindow: pkgconfig.Int("RATE_LIMIT_WINDOW_SECONDS", 600),
 	}
 }

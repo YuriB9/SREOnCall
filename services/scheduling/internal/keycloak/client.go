@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sre-oncall/pkg/httpclient"
 	"github.com/sre-oncall/scheduling/internal/domain"
 )
 
@@ -28,7 +29,7 @@ func New(adminURL, realm, clientID, clientSecret string) *Client {
 		realm:        realm,
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		httpClient:   httpclient.NewStdClient(10 * time.Second),
 	}
 }
 

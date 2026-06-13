@@ -9,11 +9,14 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sre-oncall/pkg/errs"
 	"github.com/sre-oncall/scheduling/internal/domain"
 )
 
-var ErrNotFound = errors.New("not found")
-var ErrConflict = errors.New("conflict")
+// ErrNotFound and ErrConflict alias the shared sentinels so errors.Is works
+// across the network boundary (clients map 404/409 to errs.ErrNotFound/ErrConflict).
+var ErrNotFound = errs.ErrNotFound
+var ErrConflict = errs.ErrConflict
 
 // OverrideConflictError reports an overlapping override and carries the
 // conflicting override's window and user so the handler can return them in the

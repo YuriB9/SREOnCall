@@ -28,7 +28,7 @@
 | CH03 | harden-auth-validation | 1 | CH01 | ✅ |
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ✅ |
 | CH05 | extract-bus-contracts | 2 | CH01 | ✅ |
-| CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ☐ |
+| CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ✅ |
 | CH07 | consumer-resilience | 3 | CH05 | ☐ |
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ☐ |
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **5 / 19** done.
+Прогресс: **6 / 19** done.
 
 ---
 
@@ -139,11 +139,20 @@
 > - **Остаток N4** (zero-value `Unknown`, префиксы sentinel'ов) — НЕ трогался, остаётся за **CH18**.
 > - Проверки: `go build/vet/test` (pkg/escalation/incident/notification), `golangci-lint --new-from-merge-base main` (0 new issues), `go mod tidy` без диффа — чисто. Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
-### CH06 · `extract-shared-config-and-httpclient` 🟢
+### CH06 · `extract-shared-config-and-httpclient` 🟢 — ✅ done (2026-06-13)
 **Корень:** дублирование инфраструктурного кода + расхождение клиентов.
 **Закрывает:** F6 (`pkg/config` env-хелперы), F3 (`pkg/httpclient` базовый клиент), E3 (общие sentinel'ы + маппинг 404→`ErrNotFound`/409→`ErrConflict` в клиентах), P4 (настроенный общий `http.Transport`).
 **Содержимое:** `pkg/config`, `pkg/httpclient`, `pkg/errs` (общие sentinel'ы); перевод schedclient/incclient/keycloak на базовый клиент.
 **Зависит от:** CH01.
+
+> **Реализовано.** Чейндж `extract-shared-config-and-httpclient` (no-delta infra-рефактор, архив с `--skip-specs`).
+> Что важно для следующих сессий:
+> - **`pkg/config`** (F6): `String`/`Int`/`DurationSeconds`. `Int`/`DurationSeconds` через `strconv.Atoi` — принимают легитимный `0` (фикс notification, где `fmt.Sscanf` отвергал `0`). Все 5 `config.Load()` импортируют как `pkgconfig` (имя сервис-пакета тоже `config`).
+> - **`pkg/errs`** (E3): канонические `ErrNotFound`/`ErrConflict` на монорепо. Store-сентинелы incident/escalation/scheduling/notification теперь **алиасы** (`var ErrNotFound = errs.ErrNotFound`) — `errors.Is(err, store.ErrNotFound)` и `OverrideConflictError.Is` работают как прежде, но значение одно. **Для CH08/CH10:** возвращай `errs.*` (или store-алиас) — не вводи новые локальные sentinel'ы.
+> - **`pkg/httpclient`** (F3+E3+P4): `New(baseURL, adminKey)` (нормализует `baseURL` — фикс дрейфа notification на trailing slash) + `GetJSON(ctx, path, out)` (маппит `404→errs.ErrNotFound`, `409→errs.ErrConflict`, прочее → `%w`). schedclient/incclient (escalation) и schedclient (notification) — тонкие обёртки. `NewStdClient(timeout)` отдаёт `*http.Client` на **общем тюнингованном Transport** (`MaxIdleConnsPerHost=50`) — keycloak на нём; mattermost получил те же idle-настройки, **сохранив** SSRF-guarded dialer из CH04. **Для CH10/CH13/CH14:** новые S2S-клиенты строй на `pkg/httpclient`.
+> - **notification/schedclient** сохранил контракт «404 → (nil, nil)» через `errors.Is(err, errs.ErrNotFound)`.
+> - **Wire-формат, API, события RabbitMQ НЕ менялись** — не BREAKING.
+> - Проверки: `go build/vet/test` всех 6 модулей, `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` без диффа — чисто. Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
 ---
 

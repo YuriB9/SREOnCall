@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"os"
+
+	pkgconfig "github.com/sre-oncall/pkg/config"
+)
 
 type Config struct {
 	HTTPPort          string
@@ -17,8 +21,8 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		HTTPPort:          getenv("HTTP_PORT", "8081"),
-		LogLevel:          getenv("LOG_LEVEL", "info"),
+		HTTPPort:          pkgconfig.String("HTTP_PORT", "8081"),
+		LogLevel:          pkgconfig.String("LOG_LEVEL", "info"),
 		DBDSN:             os.Getenv("DB_DSN"),
 		AMQPURL:           os.Getenv("RABBITMQ_URL"),
 		AdminKey:          os.Getenv("ADMIN_API_KEY"),
@@ -28,11 +32,4 @@ func Load() Config {
 		AuthDisabled:      os.Getenv("AUTH_DISABLED") == "true",
 		AllowInsecureJWKS: os.Getenv("AUTH_INSECURE") == "true",
 	}
-}
-
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"os"
+
+	pkgconfig "github.com/sre-oncall/pkg/config"
+)
 
 type Config struct {
 	HTTPPort          string
@@ -25,8 +29,8 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		HTTPPort:          getenv("HTTP_PORT", "8083"),
-		LogLevel:          getenv("LOG_LEVEL", "info"),
+		HTTPPort:          pkgconfig.String("HTTP_PORT", "8083"),
+		LogLevel:          pkgconfig.String("LOG_LEVEL", "info"),
 		DBDSN:             os.Getenv("DB_DSN"),
 		AMQPURL:           os.Getenv("RABBITMQ_URL"),
 		AdminKey:          os.Getenv("ADMIN_API_KEY"),
@@ -35,17 +39,10 @@ func Load() Config {
 		KeycloakAudience:  os.Getenv("KEYCLOAK_AUDIENCE"),
 		AuthDisabled:      os.Getenv("AUTH_DISABLED") == "true",
 		AllowInsecureJWKS: os.Getenv("AUTH_INSECURE") == "true",
-		SchedulingURL:     getenv("SCHEDULING_URL", "http://localhost:8082"),
+		SchedulingURL:     pkgconfig.String("SCHEDULING_URL", "http://localhost:8082"),
 
 		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
-		IncidentURL:        getenv("INCIDENT_URL", "http://localhost:8081"),
+		IncidentURL:        pkgconfig.String("INCIDENT_URL", "http://localhost:8081"),
 		IncidentAdminKey:   os.Getenv("INCIDENT_ADMIN_KEY"),
 	}
-}
-
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
