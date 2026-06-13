@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -45,73 +46,35 @@ func New(store Store, pub Publisher, logger *slog.Logger) *Consumer {
 	return &Consumer{store: store, pub: pub, logger: logger}
 }
 
-// Run starts consuming from the alerts.incident queue and blocks until ctx is cancelled.
+// Run consumes from alerts.incident via the resilient pkg/amqp framework and
+// blocks until ctx is cancelled (reconnect, drain and panic recovery handled there).
 func (c *Consumer) Run(ctx context.Context, conn *pkgamqp.Connection) error {
-	ch, err := conn.Channel()
-	if err != nil {
-		return fmt.Errorf("consumer: channel: %w", err)
-	}
-	defer ch.Close()
-
-	if err := ch.Qos(10, 0, false); err != nil {
-		return fmt.Errorf("consumer: qos: %w", err)
-	}
-
-	msgs, err := ch.Consume(pkgamqp.QueueAlertsIncident, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("consumer: consume: %w", err)
-	}
-
-	c.logger.Info("alert consumer started", "queue", pkgamqp.QueueAlertsIncident)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case msg, ok := <-msgs:
-			if !ok {
-				return fmt.Errorf("consumer: channel closed")
-			}
-			c.handle(ctx, msg)
-		}
-	}
+	return pkgamqp.Consume(ctx, conn, pkgamqp.ConsumeOptions{
+		Queue:  pkgamqp.QueueAlertsIncident,
+		Logger: c.logger,
+	}, c.handle)
 }
 
-// ProcessDelivery processes a single AMQP delivery. Exposed for integration testing.
-func (c *Consumer) ProcessDelivery(ctx context.Context, msg amqp091.Delivery) error {
+// handle is the pkg/amqp.Handler: a malformed payload is dropped (no requeue),
+// a processing failure is requeued.
+func (c *Consumer) handle(ctx context.Context, env pkgamqp.Envelope) error {
 	var alert domain.Alert
-	_, err := pkgamqp.Unwrap(msg.Body, &alert)
-	if err != nil {
-		return err
+	if err := pkgamqp.DecodePayload(env, &alert); err != nil {
+		return pkgamqp.Drop(err)
 	}
 	if alert.Status == domain.AlertStatusResolved {
 		return c.handleResolved(ctx, alert)
 	}
-	return c.handleFiring(ctx, alert, alert.TenantID)
+	return c.handleFiring(ctx, alert, env.TenantID)
 }
 
-func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
-	var alert domain.Alert
-	env, err := pkgamqp.Unwrap(msg.Body, &alert)
-	if err != nil {
-		c.logger.Error("consumer: unwrap failed", "err", err)
-		_ = msg.Nack(false, false)
-		return
+// ProcessDelivery processes a single AMQP delivery. Exposed for integration testing.
+func (c *Consumer) ProcessDelivery(ctx context.Context, msg amqp091.Delivery) error {
+	var env pkgamqp.Envelope
+	if err := json.Unmarshal(msg.Body, &env); err != nil {
+		return fmt.Errorf("unmarshal envelope: %w", err)
 	}
-
-	var processErr error
-	if alert.Status == domain.AlertStatusResolved {
-		processErr = c.handleResolved(ctx, alert)
-	} else {
-		processErr = c.handleFiring(ctx, alert, env.TenantID)
-	}
-
-	if processErr != nil {
-		c.logger.Error("consumer: process failed", "fingerprint", alert.Fingerprint, "err", processErr)
-		_ = msg.Nack(false, true)
-		return
-	}
-	_ = msg.Ack(false)
+	return c.handle(ctx, env)
 }
 
 // normalizeSource maps the legacy "prometheus" source to the canonical

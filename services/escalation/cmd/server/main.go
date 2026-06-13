@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/errgroup"
+
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
@@ -54,15 +56,17 @@ func main() {
 
 	// RabbitMQ is optional — skipped if RABBITMQ_URL is unset.
 	var pub escalator.Publisher = publisher.NewNoop()
+	var amqpConn *pkgamqp.Connection
+	var cons *consumer.Consumer
 
 	if cfg.AMQPURL != "" {
-		amqpConn, err := pkgamqp.NewConnection(cfg.AMQPURL)
+		amqpConn, err = pkgamqp.NewConnection(cfg.AMQPURL)
 		if err != nil {
 			logger.Error("rabbitmq connect failed", "err", err)
 			os.Exit(1)
 		}
 
-		amqpCh, err := amqpConn.Channel()
+		amqpCh, err := amqpConn.Channel(ctx)
 		if err != nil {
 			logger.Error("rabbitmq channel failed", "err", err)
 			os.Exit(1)
@@ -74,14 +78,7 @@ func main() {
 		amqpCh.Close()
 
 		pub = publisher.New(pkgamqp.NewPublisher(amqpConn))
-
-		esc := escalator.New(st, schedClient, pub, logger)
-		cons := consumer.New(esc, logger)
-		go func() {
-			if err := cons.Run(ctx, amqpConn); err != nil && ctx.Err() == nil {
-				logger.Error("consumer error", "err", err)
-			}
-		}()
+		cons = consumer.New(escalator.New(st, schedClient, pub, logger), logger)
 	} else {
 		logger.Warn("RABBITMQ_URL not set — running without AMQP consumer")
 	}
@@ -89,7 +86,13 @@ func main() {
 	esc := escalator.New(st, schedClient, pub, logger)
 
 	mon := monitor.New(st, esc, 30*time.Second, logger)
-	go mon.Run(ctx)
+
+	// ── Background goroutines (joined on shutdown) ─────────────────────────────
+	g, gctx := errgroup.WithContext(ctx)
+	if cons != nil {
+		g.Go(func() error { return cons.Run(gctx, amqpConn) })
+	}
+	g.Go(func() error { mon.Run(gctx); return nil })
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
 	var authMW func(http.Handler) http.Handler
@@ -164,4 +167,8 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+	_ = g.Wait() // drain consumer + monitor in-flight work (C2)
+	if amqpConn != nil {
+		_ = amqpConn.Close() // explicit close (C2)
+	}
 }

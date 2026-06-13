@@ -52,7 +52,11 @@ func (d *Mattermost) Send(ctx context.Context, webhookURL, channel, text string)
 			lastErr = fmt.Errorf("mattermost webhook returned %d", resp.StatusCode)
 		}
 		if attempt < 2 {
-			time.Sleep(time.Duration(1<<attempt) * time.Second)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(1<<attempt) * time.Second):
+			}
 		}
 	}
 	return fmt.Errorf("mattermost send failed after 3 attempts: %w", lastErr)

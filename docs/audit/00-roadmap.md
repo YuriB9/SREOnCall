@@ -29,7 +29,7 @@
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ✅ |
 | CH05 | extract-bus-contracts | 2 | CH01 | ✅ |
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ✅ |
-| CH07 | consumer-resilience | 3 | CH05 | ☐ |
+| CH07 | consumer-resilience | 3 | CH05 | ✅ |
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ☐ |
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ☐ |
 | CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **6 / 19** done.
+Прогресс: **7 / 19** done.
 
 ---
 
@@ -158,11 +158,22 @@
 
 ## Фаза 3 — Операционная корректность (высшая серьёзность, 🔴 изолированно)
 
-### CH07 · `consumer-resilience` 🔴
+### CH07 · `consumer-resilience` 🔴 — ✅ done (2026-06-13)
 **Корень:** жизненный цикл фоновых горутин.
 **Закрывает:** C1 (supervisor-петля переподключения консьюмера), C2 (`errgroup` graceful-drain + `defer amqpConn.Close()`), E2 (`recover` в обработке сообщения), C3 (drain-контекст `WithoutCancel`+timeout для in-flight), C4 (не держать мьютекс через `time.Sleep` в `Channel`), C5 (отменяемый backoff), C6 (`Publish` использует переданный `ctx`), C8 (bounded worker-pool вместо холостого `Qos(10)`), F7 (`pkg/amqp.Consume` — общий каркас consume/ack/nack).
 **Содержимое:** переработка `pkg/amqp` + консьюмеров всех сервисов + разводки в `main`.
 **Зависит от:** CH05 (канонические типы). **Самый важный операционно** (тихая смерть конвейера). Изолировать.
+
+> **Реализовано.** Чейндж `consumer-resilience` (no-delta infra/reliability, архив без spec-дельты). См. ADR-0015.
+> Что важно для следующих сессий:
+> - **Новый каркас `pkg/amqp.Consume(ctx, conn, opts, handler)`** (`pkg/amqp/consume.go`) — единый цикл consume/ack/nack: supervisor-реконнект (C1), `recover` на сообщение → drop (E2), drain-контекст `WithTimeout(WithoutCancel(ctx), 30s)` на сообщение (C3), bounded worker-pool `errgroup.SetLimit` с `prefetch=Concurrency` (C8). `Handler func(ctx, Envelope) error`: `nil`→Ack, ошибка→Nack+requeue, `amqp.Drop(err)`→Nack без requeue. Helper `DecodePayload(env, dst)`. **Все новые консьюмеры строить на нём**, не копировать цикл.
+> - **`Connection.Channel()` → `Channel(ctx)`** (смена сигнатуры pkg, обновлены все 5 `main.go` + ingestion). Реконнект не держит `mu` через сон (`reconnectMu`+double-check, C4). `Publish` пробрасывает `ctx` в `PublishWithContext` (C6). **Для CH14** (`bus-publish-perf`): переиспользуемый канал строить на этом `Connection`.
+> - **Graceful-drain в main** (incident/escalation/notification): фоновые горутины в `errgroup`, `g.Wait()` после `srv.Shutdown`, затем `amqpConn.Close()` (C2). **Для CH10** (`/readyz` живость консьюмера): сигнал состояния консьюмера завести вокруг `pkg/amqp.Consume` (точка для метрики/healthcheck — здесь не делалось, `/readyz` остался статическим).
+> - **Семантика подтверждений сохранена:** incident/escalation requeue'ят сбои обработки, drop'ают невалидный конверт/панику; notification drop'ает любую ошибку (через `Drop()`). **DLQ — вне объёма** (отдельная находка надёжности шины).
+> - **Дефолт `Concurrency=1`** (строго последовательно) — сохраняет порядок `incident.created`→`incident.updated`, критичный для escalation. Параллелизм — осознанный opt-in через `ConsumeOptions.Concurrency`.
+> - Диспетчеры notification (Mattermost/email) и supervisor-backoff: `time.Sleep` → отменяемое ожидание по `ctx` (C5); email-диспетчер теперь использует `ctx`.
+> - **Wire-формат `Envelope`/payload НЕ менялся** — не BREAKING, сообщения в очередях читаются как прежде.
+> - Проверки: `go build/vet/test` всех 6 модулей, **`-race`** (чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` (`golang.org/x/sync`→direct). Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
 ### CH08 · `db-atomicity-and-state-transitions` 🔴
 **Корень:** нет оптимистичной конкуренции на переходах состояний.

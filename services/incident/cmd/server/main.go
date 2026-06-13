@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/sync/errgroup"
 
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
@@ -54,7 +55,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ch, err := amqpConn.Channel()
+	ch, err := amqpConn.Channel(ctx)
 	if err != nil {
 		logger.Error("rabbitmq channel failed", "err", err)
 		os.Exit(1)
@@ -128,12 +129,9 @@ func main() {
 		})
 	})
 
-	// ── AMQP consumer goroutine ───────────────────────────────────────────────
-	go func() {
-		if err := cons.Run(ctx, amqpConn); err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("consumer stopped", "err", err)
-		}
-	}()
+	// ── Background goroutines (joined on shutdown) ─────────────────────────────
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return cons.Run(gctx, amqpConn) })
 
 	// ── HTTP server ──────────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -145,15 +143,18 @@ func main() {
 	}
 
 	go func() {
-		<-ctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
+		logger.Info("incident service started", "port", cfg.HTTPPort)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("server error", "err", err)
+			os.Exit(1)
+		}
 	}()
 
-	logger.Info("incident service started", "port", cfg.HTTPPort)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("server error", "err", err)
-		os.Exit(1)
-	}
+	// ── Graceful shutdown: drain HTTP, then background goroutines, then conn ────
+	<-ctx.Done()
+	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutCtx)
+	_ = g.Wait()         // drain in-flight consumer work (C2)
+	_ = amqpConn.Close() // explicit close (C2)
 }
