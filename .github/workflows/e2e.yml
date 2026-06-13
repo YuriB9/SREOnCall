@@ -1,0 +1,87 @@
+# E2E — сквозной поток «тенант → алерт → инцидент» (находка T1: e2e отдельным
+# джобом по тегу/расписанию). Запускается ТОЛЬКО вручную (workflow_dispatch),
+# поэтому никогда не блокирует push/PR. Поднимает инфраструктуру через
+# docker-compose и 3 сервиса ядра потока (они сами накатывают свои миграции),
+# затем гоняет `go test -tags e2e`.
+#
+# schedule намеренно отключён до стабилизации полного стека (Keycloak realm,
+# конфигурация сервисов) — включить, когда прогон станет стабильно зелёным.
+name: E2E
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "0 3 * * *"   # ночной прогон — включить после стабилизации
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.4"
+  DB_DSN: postgres://oncall:oncall@localhost:5432/oncall?sslmode=disable
+  RABBITMQ_URL: amqp://oncall:oncall@localhost:5672/
+  REDIS_ADDR: localhost:6379
+  ADMIN_API_KEY: devkey
+  KEYCLOAK_JWKS_URL: http://localhost:8090/realms/oncall/protocol/openid-connect/certs
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: start infrastructure (postgres/redis/rabbitmq/keycloak)
+        run: docker compose up -d
+
+      - name: wait for infrastructure to be healthy
+        run: |
+          for i in $(seq 1 40); do
+            unhealthy=$(docker compose ps --format '{{.Service}} {{.Health}}' \
+              | awk '$2 != "" && $2 != "healthy" {print $1}')
+            if [ -z "$unhealthy" ]; then echo "infra healthy"; exit 0; fi
+            echo "waiting for: $unhealthy"; sleep 5
+          done
+          echo "infrastructure did not become healthy in time"; docker compose ps; exit 1
+
+      - name: launch core services
+        env:
+          INCIDENT_URL: http://localhost:8081
+          SCHEDULING_URL: http://localhost:8082
+          INCIDENT_ADMIN_KEY: devkey
+          SCHEDULING_ADMIN_KEY: devkey
+        run: |
+          mkdir -p /tmp/svclogs
+          start() {
+            svc="$1"; port="$2"
+            ( cd "services/$svc" && HTTP_PORT="$port" go run ./cmd/server >"/tmp/svclogs/$svc.log" 2>&1 ) &
+            echo "started $svc on :$port (pid $!)"
+          }
+          start scheduling 8082
+          start incident   8081
+          start ingestion  8080
+
+      - name: wait for services /healthz
+        run: |
+          for url in http://localhost:8080/healthz http://localhost:8081/healthz http://localhost:8082/healthz; do
+            ok=""
+            for i in $(seq 1 30); do
+              if curl -fsS "$url" >/dev/null 2>&1; then ok=1; echo "$url up"; break; fi
+              sleep 2
+            done
+            if [ -z "$ok" ]; then echo "service not healthy: $url"; cat /tmp/svclogs/*.log; exit 1; fi
+          done
+
+      - name: run e2e tests
+        working-directory: tests/e2e
+        env:
+          SCHEDULING_URL: http://localhost:8082
+          INGESTION_URL: http://localhost:8080
+          INCIDENT_URL: http://localhost:8081
+        run: go test -tags e2e -v ./...
+
+      - name: dump service logs on failure
+        if: failure()
+        run: cat /tmp/svclogs/*.log || true

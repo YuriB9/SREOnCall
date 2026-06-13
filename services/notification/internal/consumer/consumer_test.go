@@ -1,8 +1,3 @@
-//go:build integration
-
-// Run with: go test -tags integration -v ./internal/consumer/...
-// Uses in-memory stubs — no external services required.
-
 package consumer_test
 
 import (
@@ -72,7 +67,7 @@ func (c *captureMM) Send(_ context.Context, _, _, text string) error {
 
 func makeConsumer(st notifier.Store, cache notifier.TenantCache, email *captureEmail, mm *captureMM) *consumer.Consumer {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	n := notifier.New(st, cache, alwaysAllow{}, email, mm, "oncall@example.com", logger)
+	n := notifier.New(st, cache, alwaysAllow{}, email, mm, "oncall@example.com", "", logger)
 	return consumer.New(n, logger)
 }
 
@@ -136,6 +131,7 @@ func TestConsumer_TriggeredEvent_NoContact_NoError(t *testing.T) {
 func TestConsumer_ExhaustedEvent_PostsToMattermost(t *testing.T) {
 	st := newMemStore()
 	cfg := &schedclient.TenantNotificationConfig{
+		MattermostEnabled:    true,
 		MattermostWebhookURL: "http://mm.example.com/hook",
 		MattermostChannel:    "#ops",
 	}

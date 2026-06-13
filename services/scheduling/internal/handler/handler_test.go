@@ -1,8 +1,3 @@
-//go:build integration
-
-// Run with: go test -tags integration -v ./internal/handler/...
-// Uses in-memory stubs — no external services required.
-
 package handler_test
 
 import (
