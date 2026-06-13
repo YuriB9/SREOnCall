@@ -23,6 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # tests/e2e не входит: под дефолтным build-тегом у него нет пакетов
+        # (`//go:build e2e`), а `go test ./...` на пустом наборе возвращает 1.
+        # E2E покрыт отдельным workflow (e2e.yml).
         module:
           - pkg
           - services/escalation
@@ -30,7 +33,6 @@ jobs:
           - services/ingestion
           - services/notification
           - services/scheduling
-          - tests/e2e
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
