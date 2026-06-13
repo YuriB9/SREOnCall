@@ -54,10 +54,12 @@ func signToken(t *testing.T, key *rsa.PrivateKey, claims jwt.MapClaims) string {
 }
 
 // newHandler returns the wrapped middleware and a probe handler that records
-// the auth method and claims seen in the request context.
-func newHandler(t *testing.T, jwksURL, adminKey string) (http.Handler, *probe) {
+// the auth method and claims seen in the request context. The httptest JWKS
+// server speaks http, so AllowInsecureJWKS is forced on for the helper.
+func newHandler(t *testing.T, opts Options) (http.Handler, *probe) {
 	t.Helper()
-	mw, err := Middleware(jwksURL, adminKey)
+	opts.AllowInsecureJWKS = true
+	mw, err := Middleware(opts)
 	if err != nil {
 		t.Fatalf("init middleware: %v", err)
 	}
@@ -80,7 +82,7 @@ type probe struct {
 
 func TestMiddlewareAdminKeySetsServiceMethod(t *testing.T) {
 	_, jwksSrv := newJWKSServer(t)
-	h, p := newHandler(t, jwksSrv.URL, "secret")
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, AdminKey: "secret"})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Admin-Key", "secret")
@@ -100,7 +102,7 @@ func TestMiddlewareAdminKeySetsServiceMethod(t *testing.T) {
 
 func TestMiddlewareJWTSetsUserMethod(t *testing.T) {
 	key, jwksSrv := newJWKSServer(t)
-	h, p := newHandler(t, jwksSrv.URL, "secret")
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, AdminKey: "secret"})
 
 	raw := signToken(t, key, jwt.MapClaims{
 		"sub":                "user-1",
@@ -127,7 +129,7 @@ func TestMiddlewareJWTSetsUserMethod(t *testing.T) {
 
 func TestMiddlewareWrongAdminKeyWithoutJWTRejected(t *testing.T) {
 	_, jwksSrv := newJWKSServer(t)
-	h, p := newHandler(t, jwksSrv.URL, "secret")
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, AdminKey: "secret"})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Admin-Key", "wrong")
@@ -139,5 +141,147 @@ func TestMiddlewareWrongAdminKeyWithoutJWTRejected(t *testing.T) {
 	}
 	if p.called {
 		t.Errorf("handler called for unauthenticated request")
+	}
+}
+
+// S3 — an empty configured admin key must never grant the service bypass,
+// even when the request omits the header (both sides empty must not match).
+func TestMiddlewareEmptyAdminKeyNeverBypasses(t *testing.T) {
+	t.Parallel()
+	_, jwksSrv := newJWKSServer(t)
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, AdminKey: ""})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Admin-Key", "")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if p.called {
+		t.Errorf("handler called with empty admin key")
+	}
+}
+
+// S4 — a token without exp must be rejected (WithExpirationRequired).
+func TestMiddlewareRejectsTokenWithoutExp(t *testing.T) {
+	t.Parallel()
+	key, jwksSrv := newJWKSServer(t)
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL})
+
+	raw := signToken(t, key, jwt.MapClaims{"sub": "user-1"}) // no exp
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if p.called {
+		t.Errorf("handler called for token without exp")
+	}
+}
+
+// S4 — a token whose aud differs from the configured audience is rejected.
+func TestMiddlewareRejectsWrongAudience(t *testing.T) {
+	t.Parallel()
+	key, jwksSrv := newJWKSServer(t)
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, Audience: "oncall-api"})
+
+	raw := signToken(t, key, jwt.MapClaims{
+		"sub": "user-1",
+		"aud": "some-other-client",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if p.called {
+		t.Errorf("handler called for token with wrong aud")
+	}
+}
+
+// S4 — a token whose iss differs from the configured issuer is rejected,
+// while a matching iss/aud token is accepted.
+func TestMiddlewareIssuerEnforced(t *testing.T) {
+	t.Parallel()
+	key, jwksSrv := newJWKSServer(t)
+	const issuer = "https://keycloak.example/realms/oncall"
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL, Issuer: issuer})
+
+	// wrong issuer → rejected
+	bad := signToken(t, key, jwt.MapClaims{
+		"sub": "user-1", "iss": "https://evil.example", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+bad)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || p.called {
+		t.Fatalf("wrong issuer accepted: status=%d called=%v", rec.Code, p.called)
+	}
+
+	// correct issuer → accepted
+	good := signToken(t, key, jwt.MapClaims{
+		"sub": "user-1", "iss": issuer, "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+good)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !p.called {
+		t.Fatalf("correct issuer rejected: status=%d called=%v", rec.Code, p.called)
+	}
+}
+
+// S4 — a non-RS256 token (alg confusion attempt) is rejected by the method
+// allowlist before reaching the keyfunc.
+func TestMiddlewareRejectsNonRS256(t *testing.T) {
+	t.Parallel()
+	_, jwksSrv := newJWKSServer(t)
+	h, p := newHandler(t, Options{JWKSURL: jwksSrv.URL})
+
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "user-1", "exp": time.Now().Add(time.Hour).Unix(),
+	})
+	tok.Header["kid"] = testKID
+	raw, err := tok.SignedString([]byte("symmetric-secret"))
+	if err != nil {
+		t.Fatalf("sign hs256: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if p.called {
+		t.Errorf("handler called for HS256 token")
+	}
+}
+
+// S5 — an http JWKS URL is rejected unless AllowInsecureJWKS is set; an empty
+// URL is always rejected (fail-closed support).
+func TestMiddlewareJWKSSchemeValidation(t *testing.T) {
+	t.Parallel()
+	_, jwksSrv := newJWKSServer(t) // httptest serves http://
+
+	if _, err := Middleware(Options{JWKSURL: ""}); err == nil {
+		t.Errorf("empty JWKS URL accepted, want error")
+	}
+	if _, err := Middleware(Options{JWKSURL: jwksSrv.URL}); err == nil {
+		t.Errorf("http JWKS URL accepted without AllowInsecureJWKS, want error")
+	}
+	if _, err := Middleware(Options{JWKSURL: jwksSrv.URL, AllowInsecureJWKS: true}); err != nil {
+		t.Errorf("http JWKS URL rejected with AllowInsecureJWKS=true: %v", err)
 	}
 }

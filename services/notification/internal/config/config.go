@@ -6,15 +6,19 @@ import (
 )
 
 type Config struct {
-	HTTPPort        string
-	LogLevel        string
-	DBDSN           string
-	AMQPURL         string
-	RedisAddr       string
-	RedisPassword   string
-	AdminKey        string
-	KeycloakJWKSURL string
-	SchedulingURL   string
+	HTTPPort          string
+	LogLevel          string
+	DBDSN             string
+	AMQPURL           string
+	RedisAddr         string
+	RedisPassword     string
+	AdminKey          string
+	KeycloakJWKSURL   string
+	KeycloakIssuer    string
+	KeycloakAudience  string
+	AuthDisabled      bool
+	AllowInsecureJWKS bool
+	SchedulingURL     string
 	// SchedulingAdminKey is sent as X-Admin-Key to the scheduling service
 	// for service-to-service authentication.
 	SchedulingAdminKey string
@@ -51,15 +55,19 @@ func getenvInt(key string, def int) int {
 
 func Load() Config {
 	return Config{
-		HTTPPort:        getenv("HTTP_PORT", "8084"),
-		LogLevel:        getenv("LOG_LEVEL", "info"),
-		DBDSN:           os.Getenv("DB_DSN"),
-		AMQPURL:         os.Getenv("RABBITMQ_URL"),
-		RedisAddr:       getenv("REDIS_ADDR", "localhost:6379"),
-		RedisPassword:   os.Getenv("REDIS_PASSWORD"),
-		AdminKey:        os.Getenv("ADMIN_API_KEY"),
-		KeycloakJWKSURL: os.Getenv("KEYCLOAK_JWKS_URL"),
-		SchedulingURL:   getenv("SCHEDULING_URL", "http://localhost:8082"),
+		HTTPPort:          getenv("HTTP_PORT", "8084"),
+		LogLevel:          getenv("LOG_LEVEL", "info"),
+		DBDSN:             os.Getenv("DB_DSN"),
+		AMQPURL:           os.Getenv("RABBITMQ_URL"),
+		RedisAddr:         getenv("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
+		AdminKey:          os.Getenv("ADMIN_API_KEY"),
+		KeycloakJWKSURL:   os.Getenv("KEYCLOAK_JWKS_URL"),
+		KeycloakIssuer:    os.Getenv("KEYCLOAK_ISSUER"),
+		KeycloakAudience:  os.Getenv("KEYCLOAK_AUDIENCE"),
+		AuthDisabled:      os.Getenv("AUTH_DISABLED") == "true",
+		AllowInsecureJWKS: os.Getenv("AUTH_INSECURE") == "true",
+		SchedulingURL:     getenv("SCHEDULING_URL", "http://localhost:8082"),
 
 		SchedulingAdminKey: os.Getenv("SCHEDULING_ADMIN_KEY"),
 		FrontendBaseURL:    os.Getenv("FRONTEND_BASE_URL"),

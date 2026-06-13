@@ -3,16 +3,20 @@ package config
 import "os"
 
 type Config struct {
-	HTTPPort        string
-	DBDSN           string
-	AdminKey        string
-	KeycloakJWKSURL string
-	RedisAddr       string
-	RedisPassword   string
+	HTTPPort          string
+	DBDSN             string
+	AdminKey          string
+	KeycloakJWKSURL   string
+	KeycloakIssuer    string
+	KeycloakAudience  string
+	AuthDisabled      bool
+	AllowInsecureJWKS bool
+	RedisAddr         string
+	RedisPassword     string
 	// Keycloak Admin API — for reading group membership
-	KeycloakAdminURL    string
-	KeycloakRealm       string
-	KeycloakClientID    string
+	KeycloakAdminURL     string
+	KeycloakRealm        string
+	KeycloakClientID     string
 	KeycloakClientSecret string
 }
 
@@ -22,6 +26,10 @@ func Load() Config {
 		DBDSN:                os.Getenv("DB_DSN"),
 		AdminKey:             os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL:      os.Getenv("KEYCLOAK_JWKS_URL"),
+		KeycloakIssuer:       os.Getenv("KEYCLOAK_ISSUER"),
+		KeycloakAudience:     os.Getenv("KEYCLOAK_AUDIENCE"),
+		AuthDisabled:         os.Getenv("AUTH_DISABLED") == "true",
+		AllowInsecureJWKS:    os.Getenv("AUTH_INSECURE") == "true",
 		RedisAddr:            getenv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:        os.Getenv("REDIS_PASSWORD"),
 		KeycloakAdminURL:     getenv("KEYCLOAK_ADMIN_URL", "http://localhost:8080"),

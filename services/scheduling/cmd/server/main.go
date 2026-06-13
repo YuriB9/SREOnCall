@@ -89,15 +89,29 @@ func main() {
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
 	var authMW func(http.Handler) http.Handler
-	if cfg.KeycloakJWKSURL != "" {
-		mw, err := pkgauth.Middleware(cfg.KeycloakJWKSURL, cfg.AdminKey)
+	switch {
+	case cfg.KeycloakJWKSURL != "":
+		if cfg.KeycloakIssuer == "" || cfg.KeycloakAudience == "" {
+			logger.Warn("JWT iss/aud не проверяется: задайте KEYCLOAK_ISSUER и KEYCLOAK_AUDIENCE для полной валидации")
+		}
+		mw, err := pkgauth.Middleware(pkgauth.Options{
+			JWKSURL:           cfg.KeycloakJWKSURL,
+			AdminKey:          cfg.AdminKey,
+			Issuer:            cfg.KeycloakIssuer,
+			Audience:          cfg.KeycloakAudience,
+			AllowInsecureJWKS: cfg.AllowInsecureJWKS,
+		})
 		if err != nil {
 			logger.Error("auth middleware init failed", "err", err)
 			os.Exit(1)
 		}
 		authMW = mw
-	} else {
+	case cfg.AuthDisabled:
+		logger.Warn("AUTH_DISABLED=true: запросы проходят без аутентификации — только для локальной разработки")
 		authMW = func(next http.Handler) http.Handler { return next }
+	default:
+		logger.Error("KEYCLOAK_JWKS_URL не задан; для отключения аутентификации в локалке установите AUTH_DISABLED=true")
+		os.Exit(1)
 	}
 
 	// ── User upsert middleware (scheduling only) ───────────────────────────────
