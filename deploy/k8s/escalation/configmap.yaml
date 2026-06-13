@@ -6,5 +6,10 @@ data:
   LOG_LEVEL: "info"
   HTTP_PORT: "8080"
   KEYCLOAK_JWKS_URL: "http://keycloak:8080/realms/oncall/protocol/openid-connect/certs"
+  # JWKS тянется по http внутри кластера (S5): флаг разрешает http; перевести на https и убрать.
+  AUTH_INSECURE: "true"
+  # Полная валидация JWT (S4) — раскомментировать после сверки realm/audience:
+  # KEYCLOAK_ISSUER: "http://keycloak:8080/realms/oncall"
+  # KEYCLOAK_AUDIENCE: "account"
   SCHEDULING_URL: "http://scheduling"
   INCIDENT_URL: "http://incident"

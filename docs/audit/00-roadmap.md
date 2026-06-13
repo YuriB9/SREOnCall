@@ -25,7 +25,7 @@
 | --- | --- | --- | --- | --- |
 | CH01 | add-ci-and-quality-gates | 0 | — | ✅ |
 | CH02 | bump-vulnerable-auth-deps | 0 | — | ✅ |
-| CH03 | harden-auth-validation | 1 | CH01 | ☐ |
+| CH03 | harden-auth-validation | 1 | CH01 | ✅ |
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ☐ |
 | CH05 | extract-bus-contracts | 2 | CH01 | ☐ |
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **2 / 19** done.
+Прогресс: **3 / 19** done.
 
 ---
 
@@ -81,11 +81,20 @@
 
 ## Фаза 1 — Безопасность (маленькие, изолированные)
 
-### CH03 · `harden-auth-validation` 🟡
+### CH03 · `harden-auth-validation` 🟡 — ✅ done (2026-06-13)
 **Корень:** ослабленная аутентификация.
 **Закрывает:** S1 (fail-closed при пустом JWKS + явный флаг `AUTH_DISABLED` для локалки), S3 (`subtle.ConstantTimeCompare` для admin-key), S4 (`jwt.WithAudience/WithIssuer/WithValidMethods/WithExpirationRequired`), S5 (форс https для JWKS).
 **Содержимое:** правки `pkg/auth` + конфиг (issuer/audience). **Риск:** fail-closed может «уронить» мисконфигнутый деплой — это и есть цель, но нужен escape-hatch и явная миграция env.
 **Зависит от:** CH01 (гейт), желательно после CH02.
+
+> **Реализовано.** Чейндж `harden-auth-validation` (no-delta infra/security, архив с `--skip-specs`). См. ADR-0012.
+> Что важно для следующих сессий:
+> - **`pkg/auth.Middleware` сменил сигнатуру** на `Middleware(auth.Options{JWKSURL, AdminKey, Issuer, Audience, AllowInsecureJWKS})` — учесть в **CH10** (F10/F4: wiring auth выносится в `pkg/httpserver`). Fail-closed-блок сейчас продублирован в 4 `main.go` единообразно — готов к выносу.
+> - **Fail-closed:** пустой `KEYCLOAK_JWKS_URL` → `os.Exit(1)`; отключение только `AUTH_DISABLED=true`. Локальный запуск Go-сервисов (вне docker-compose) и CI без Keycloak требуют `AUTH_DISABLED=true`.
+> - **S5 force-https:** k8s-configmap'ы тянут JWKS по http (`http://keycloak:8080`), поэтому проставлен `AUTH_INSECURE=true` с пометкой перевести на https.
+> - **iss/aud — enforce-if-configured:** включаются только при заданных `KEYCLOAK_ISSUER`/`KEYCLOAK_AUDIENCE` (в манифестах закомментированы). **Backlog:** сделать iss/aud обязательными после раскатки env; сузить полномочия god-key admin-key / ротация / client-credentials (S3-follow-up, ADR-0009).
+> - `ingestion` вне объёма (webhook-token auth, JWT-middleware не использует).
+> - Проверки: `go build/vet/test` всех модулей, `-race ./pkg/auth`, `golangci-lint` (0 new issues), `govulncheck` (0 достижимых) — чисто.
 
 ### CH04 · `guard-webhook-ssrf` 🟢
 **Корень:** SSRF через подконтрольный тенанту URL.
