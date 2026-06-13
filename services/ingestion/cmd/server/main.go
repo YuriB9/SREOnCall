@@ -66,7 +66,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ch, err := amqpConn.Channel()
+	ch, err := amqpConn.Channel(ctx)
 	if err != nil {
 		logger.Error("rabbitmq channel failed", "err", err)
 		os.Exit(1)

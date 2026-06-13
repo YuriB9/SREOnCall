@@ -36,7 +36,7 @@ func NewEmail(host, port, username, password string) *Email {
 	return &Email{host: host, port: port, username: username, password: password}
 }
 
-func (d *Email) Send(_ context.Context, from, to string, msg EmailMessage) error {
+func (d *Email) Send(ctx context.Context, from, to string, msg EmailMessage) error {
 	subject := fmt.Sprintf("[SRE OnCall] [%s] %s", msg.Severity, msg.Title)
 	if msg.Title == "" {
 		// Event without incident data (older escalation version) — fallback.
@@ -85,7 +85,11 @@ func (d *Email) Send(_ context.Context, from, to string, msg EmailMessage) error
 			return nil
 		}
 		if attempt < 2 {
-			time.Sleep(time.Duration(1<<attempt) * time.Second)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(1<<attempt) * time.Second):
+			}
 		}
 	}
 	return fmt.Errorf("email send failed after 3 attempts: %w", lastErr)

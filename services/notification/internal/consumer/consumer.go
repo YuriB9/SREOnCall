@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	amqp091 "github.com/rabbitmq/amqp091-go"
 	"github.com/sre-oncall/notification/internal/notifier"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/pkg/events"
@@ -21,43 +20,44 @@ func New(n *notifier.Notifier, logger *slog.Logger) *Consumer {
 	return &Consumer{notifier: n, logger: logger}
 }
 
+// Run consumes from escalations.notification via the resilient pkg/amqp
+// framework and blocks until ctx is cancelled.
 func (c *Consumer) Run(ctx context.Context, conn *pkgamqp.Connection) error {
-	ch, err := conn.Channel()
-	if err != nil {
-		return fmt.Errorf("consumer: channel: %w", err)
-	}
-	defer ch.Close()
-
-	if err := ch.Qos(10, 0, false); err != nil {
-		return fmt.Errorf("consumer: qos: %w", err)
-	}
-
-	msgs, err := ch.Consume(pkgamqp.QueueEscalationsNotification, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("consumer: consume: %w", err)
-	}
-
-	c.logger.Info("notification consumer started", "queue", pkgamqp.QueueEscalationsNotification)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case msg, ok := <-msgs:
-			if !ok {
-				return fmt.Errorf("consumer: channel closed")
-			}
-			c.handle(ctx, msg)
-		}
-	}
+	return pkgamqp.Consume(ctx, conn, pkgamqp.ConsumeOptions{
+		Queue:  pkgamqp.QueueEscalationsNotification,
+		Logger: c.logger,
+	}, c.handle)
 }
 
-func (c *Consumer) handle(ctx context.Context, msg amqp091.Delivery) {
-	if err := c.ProcessDelivery(ctx, msg.Body); err != nil {
-		c.logger.Error("process delivery failed", "err", err)
-		_ = msg.Nack(false, false)
-		return
+// handle is the pkg/amqp.Handler. Notification drops any processing error (no
+// requeue) to preserve prior behaviour. The envelope is decoded once by the
+// framework — no double parse.
+func (c *Consumer) handle(ctx context.Context, env pkgamqp.Envelope) error {
+	switch env.Type {
+	case pkgamqp.RoutingKeyEscalationTriggered:
+		var ev events.EscalationTriggered
+		if err := pkgamqp.DecodePayload(env, &ev); err != nil {
+			return pkgamqp.Drop(fmt.Errorf("decode triggered: %w", err))
+		}
+		if err := c.notifier.NotifyTriggered(ctx, ev); err != nil {
+			return pkgamqp.Drop(err)
+		}
+		return nil
+
+	case pkgamqp.RoutingKeyEscalationExhausted:
+		var ev events.EscalationExhausted
+		if err := pkgamqp.DecodePayload(env, &ev); err != nil {
+			return pkgamqp.Drop(fmt.Errorf("decode exhausted: %w", err))
+		}
+		if err := c.notifier.NotifyExhausted(ctx, ev); err != nil {
+			return pkgamqp.Drop(err)
+		}
+		return nil
+
+	default:
+		c.logger.Debug("consumer: ignoring event type", "type", env.Type)
+		return nil
 	}
-	_ = msg.Ack(false)
 }
 
 // ProcessDelivery processes a raw AMQP message body. Exposed for testing.
@@ -66,24 +66,5 @@ func (c *Consumer) ProcessDelivery(ctx context.Context, body []byte) error {
 	if err := json.Unmarshal(body, &env); err != nil {
 		return fmt.Errorf("consumer: unmarshal envelope: %w", err)
 	}
-
-	switch env.Type {
-	case pkgamqp.RoutingKeyEscalationTriggered:
-		var ev events.EscalationTriggered
-		if _, err := pkgamqp.Unwrap(body, &ev); err != nil {
-			return fmt.Errorf("consumer: unwrap triggered: %w", err)
-		}
-		return c.notifier.NotifyTriggered(ctx, ev)
-
-	case pkgamqp.RoutingKeyEscalationExhausted:
-		var ev events.EscalationExhausted
-		if _, err := pkgamqp.Unwrap(body, &ev); err != nil {
-			return fmt.Errorf("consumer: unwrap exhausted: %w", err)
-		}
-		return c.notifier.NotifyExhausted(ctx, ev)
-
-	default:
-		c.logger.Debug("consumer: ignoring event type", "type", env.Type)
-		return nil
-	}
+	return c.handle(ctx, env)
 }

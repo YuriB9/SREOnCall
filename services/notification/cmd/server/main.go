@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/errgroup"
+
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
@@ -69,13 +71,15 @@ func main() {
 	notif := notifier.New(st, cache, rl, emailDisp, mmDisp, cfg.SMTPFrom, cfg.FrontendBaseURL, logger)
 
 	// ── RabbitMQ (optional — skipped if RABBITMQ_URL is unset) ───────────────
+	var amqpConn *pkgamqp.Connection
+	var cons *consumer.Consumer
 	if cfg.AMQPURL != "" {
-		amqpConn, err := pkgamqp.NewConnection(cfg.AMQPURL)
+		amqpConn, err = pkgamqp.NewConnection(cfg.AMQPURL)
 		if err != nil {
 			logger.Error("rabbitmq connect failed", "err", err)
 			os.Exit(1)
 		}
-		amqpCh, err := amqpConn.Channel()
+		amqpCh, err := amqpConn.Channel(ctx)
 		if err != nil {
 			logger.Error("rabbitmq channel failed", "err", err)
 			os.Exit(1)
@@ -86,14 +90,15 @@ func main() {
 		}
 		amqpCh.Close()
 
-		cons := consumer.New(notif, logger)
-		go func() {
-			if err := cons.Run(ctx, amqpConn); err != nil && ctx.Err() == nil {
-				logger.Error("consumer error", "err", err)
-			}
-		}()
+		cons = consumer.New(notif, logger)
 	} else {
 		logger.Warn("RABBITMQ_URL not set — running without AMQP consumer")
+	}
+
+	// ── Background goroutines (joined on shutdown) ─────────────────────────────
+	g, gctx := errgroup.WithContext(ctx)
+	if cons != nil {
+		g.Go(func() error { return cons.Run(gctx, amqpConn) })
 	}
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
@@ -156,4 +161,8 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+	_ = g.Wait() // drain in-flight consumer work (C2)
+	if amqpConn != nil {
+		_ = amqpConn.Close() // explicit close (C2)
+	}
 }

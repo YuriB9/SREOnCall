@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/sre-oncall/escalation/internal/domain"
@@ -42,6 +43,14 @@ func (m *Monitor) Run(ctx context.Context) {
 }
 
 func (m *Monitor) step(ctx context.Context) {
+	// Recover so a panic on one expired state does not kill the whole monitor
+	// goroutine (E2). The tick is skipped; the next tick retries.
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("monitor: panic in step", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
+
 	states, err := m.store.ListExpiredStates(ctx, 50)
 	if err != nil {
 		m.logger.Error("monitor: list expired states", "err", err)
