@@ -1,0 +1,199 @@
+# CI — гейт качества для go.work-монорепо (находки аудита T1, DC2).
+# Матрица по модулям воркспейса: build + race-тесты + go mod tidy; отдельные
+# джобы lint (golangci-lint, only-new-issues), govulncheck (информационный до
+# CH02) и integration (Postgres/Redis).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.26.4"
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pkg
+          - services/escalation
+          - services/incident
+          - services/ingestion
+          - services/notification
+          - services/scheduling
+          - tests/e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: go build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+      - name: go test -race -shuffle=on
+        working-directory: ${{ matrix.module }}
+        run: go test -race -shuffle=on ./...
+      - name: go mod tidy is clean
+        working-directory: ${{ matrix.module }}
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+  build-tools:
+    name: build pinned tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: tools/go.sum
+      - name: build golangci-lint & govulncheck from ./tools
+        env:
+          GOWORK: "off"
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/bin"
+          go -C tools build -o "$GITHUB_WORKSPACE/bin/golangci-lint" github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+          go -C tools build -o "$GITHUB_WORKSPACE/bin/govulncheck" golang.org/x/vuln/cmd/govulncheck
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-tools
+          path: bin/
+          retention-days: 1
+
+  lint:
+    name: lint (${{ matrix.module }})
+    needs: build-tools
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pkg
+          - services/escalation
+          - services/incident
+          - services/ingestion
+          - services/notification
+          - services/scheduling
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-tools
+          path: bin
+      - name: make tools executable
+        run: chmod +x bin/golangci-lint bin/govulncheck
+      # PR: гейтим только новые замечания относительно merge-base с целевой веткой.
+      - name: golangci-lint (new issues only)
+        if: github.event_name == 'pull_request'
+        working-directory: ${{ matrix.module }}
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          "$GITHUB_WORKSPACE/bin/golangci-lint" run \
+            --config "$GITHUB_WORKSPACE/.golangci.yml" \
+            --new-from-merge-base "origin/${{ github.base_ref }}" \
+            ./...
+      # push в main: полный прогон информационно (накопленный долг не блокирует).
+      - name: golangci-lint (full, informational)
+        if: github.event_name == 'push'
+        continue-on-error: true
+        working-directory: ${{ matrix.module }}
+        run: |
+          "$GITHUB_WORKSPACE/bin/golangci-lint" run \
+            --config "$GITHUB_WORKSPACE/.golangci.yml" \
+            ./...
+
+  govulncheck:
+    name: govulncheck (${{ matrix.module }})
+    needs: build-tools
+    # ВРЕМЕННО информационный (continue-on-error): сейчас сообщит о достижимых
+    # уязвимостях auth (находка DC1). Их фикс — CH02 (bump-vulnerable-auth-deps);
+    # тот чейндж снимает continue-on-error и делает джоб блокирующим гейтом.
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - pkg
+          - services/escalation
+          - services/incident
+          - services/ingestion
+          - services/notification
+          - services/scheduling
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-tools
+          path: bin
+      - name: govulncheck
+        working-directory: ${{ matrix.module }}
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/bin/govulncheck"
+          "$GITHUB_WORKSPACE/bin/govulncheck" ./...
+
+  integration:
+    name: integration (scheduling)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oncall
+          POSTGRES_PASSWORD: oncall
+          POSTGRES_DB: oncall
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U oncall"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_DSN: postgres://oncall:oncall@localhost:5432/oncall?sslmode=disable
+      REDIS_ADDR: localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: services/scheduling/go.sum
+      - name: apply scheduling migrations
+        run: |
+          for f in $(ls services/scheduling/migrations/*.up.sql | sort); do
+            echo "applying $f"
+            psql "$DB_DSN" -v ON_ERROR_STOP=1 -f "$f"
+          done
+      - name: go test -tags integration (scheduling)
+        working-directory: services/scheduling
+        run: go test -tags integration -race ./...

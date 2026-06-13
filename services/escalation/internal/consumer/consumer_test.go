@@ -1,8 +1,3 @@
-//go:build integration
-
-// Run with: go test -tags integration -v ./internal/consumer/...
-// Uses in-memory stubs — no external services required.
-
 package consumer_test
 
 import (

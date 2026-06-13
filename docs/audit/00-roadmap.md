@@ -23,7 +23,7 @@
 
 | CH | Чейндж | Фаза | Зависит от | Статус |
 | --- | --- | --- | --- | --- |
-| CH01 | add-ci-and-quality-gates | 0 | — | ☐ |
+| CH01 | add-ci-and-quality-gates | 0 | — | ✅ |
 | CH02 | bump-vulnerable-auth-deps | 0 | — | ☐ |
 | CH03 | harden-auth-validation | 1 | CH01 | ☐ |
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ☐ |
@@ -43,23 +43,33 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **0 / 19** done.
+Прогресс: **1 / 19** done.
 
 ---
 
 ## Фаза 0 — Фундамент и срочная безопасность
 
-### CH01 · `add-ci-and-quality-gates` 🟢
+### CH01 · `add-ci-and-quality-gates` 🟢 — ✅ done (2026-06-13)
 **Корень:** нет автоматического гейта качества.
 **Закрывает:** T1, DC2, DC3, DC4, T2 (снять тег `integration` со стаб-тестов → дефолтный прогон снова что-то охраняет), DC6 (e2e `go.sum`).
 **Содержимое:** GitHub Actions (матрица по модулям `go.work`): `go test -race -shuffle=on`, `go mod tidy && git diff --exit-code`, `golangci-lint`, `govulncheck`, отдельный integration-джоб с сервисами; `.golangci.yml` (errcheck, govet, staticcheck, revive, gosec, bodyclose, sqlclosecheck, nilerr, modernize, errname, paralleltest); `tool`-директивы в go.mod; Renovate/Dependabot.
 **Зависит от:** —. **Первый** — даёт сетку для всего остального.
+
+> **Реализовано.** Чейндж `add-ci-and-quality-gates` (архив с `--skip-specs`, no-delta tooling).
+> Что важно для следующих сессий:
+> - **golangci-lint в CI = `only-new-issues`** (на PR `--new-from-merge-base`, на push в main — информационно). Baseline 188 замечаний — это долг профильных чейнджей: paralleltest→CH17, revive/modernize/package-comments→CH18, errcheck `_ =`→CH08/CH18. Они **не блокируют**, пока не правишь их файлы.
+> - **Инструменты пинятся изолированным модулем `./tools`** (golangci-lint v2.12.2, govulncheck v1.3.0; вне `go.work`). Менять версии — там; CI собирает бинари из него.
+> - **Стаб-тесты переименованы** `*_integration_test.go` → `*_test.go` и теперь в дефолтном прогоне. Тег `integration` оставлен только у `scheduling/store` и `scheduling/tokenindex`. Чинились 2 протухших теста notification (см. tasks.md §2.4).
+> - **e2e.yml — только `workflow_dispatch`** (полный стек не доведён до зелёного; `schedule` отключён). Довести вероятно вместе с CH19.
+> - **Backlog для CH17/T5:** `go vet` httpresponse в `handler_test.go` (escalation/incident/scheduling) — латентный nil-deref, вскрыт снятием тега, отложен по объёму.
+> - **Git-воркфлоу с этого момента — через PR** (Actions настроен): мерж по зелёному CI.
 
 ### CH02 · `bump-vulnerable-auth-deps` 🟢
 **Корень:** достижимые CVE в дереве зависимостей.
 **Закрывает:** DC1 (jwt/v5 → v5.2.2 [GO-2025-3553], jwkset → v0.6.0 [GO-2025-3376]).
 **Содержимое:** бамп версий в каждом модуле с auth, `go mod tidy`, перепроверка `govulncheck`.
 **Зависит от:** —. Срочно (две достижимые уязвимости в пути auth); верифицируется гейтом из CH01.
+> **Доп. задача (хэндофф CH01):** после фикса DC1 снять `continue-on-error: true` с джоба `govulncheck` в `.github/workflows/ci.yml` — сделать его блокирующим гейтом.
 
 ---
 

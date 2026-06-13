@@ -1,0 +1,35 @@
+# Автообновление зависимостей (находка аудита DC4).
+# Нативный Dependabot: gomod по всем модулям go.work + сам модуль ./tools
+# (пины golangci-lint/govulncheck) + github-actions для воркфлоу.
+# minor/patch группируются в один PR на директорию; major — отдельными PR.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories:
+      - /pkg
+      - /services/escalation
+      - /services/incident
+      - /services/ingestion
+      - /services/notification
+      - /services/scheduling
+      - /tests/e2e
+      - /tools
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      go-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch

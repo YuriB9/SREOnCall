@@ -1,0 +1,54 @@
+# golangci-lint v2 — конфигурация гейта качества (находка аудита DC3).
+# Запускается в CI с only-new-issues: true — гейтит новый/изменённый код,
+# не блокируя на накопленном долге (его закрывают профильные чейнджи аудита).
+# Версия линтера пинится модулем ./tools (находка DC4).
+version: "2"
+
+run:
+  # Анализировать все build-теги (в т.ч. integration), чтобы линтер видел
+  # реально-инфраструктурные тесты scheduling/store и tokenindex.
+  build-tags:
+    - integration
+    - e2e
+
+linters:
+  # default: standard уже включает errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - revive          # стиль/идиоматичность (N1/N2 области 9)
+    - gosec           # SAST (область 5)
+    - bodyclose       # незакрытые HTTP-тела
+    - sqlclosecheck   # незакрытые Rows/Stmt (pgx)
+    - nilerr          # return nil при ненулевой ошибке
+    - modernize       # современные конструкции Go (N5 области 9)
+    - misspell        # опечатки в комментариях/строках
+    - errname         # sentinel-ошибки с префиксом Err (N4 области 9)
+    - paralleltest    # отсутствие t.Parallel() (T5 области 8)
+  settings:
+    revive:
+      rules:
+        - name: package-comments   # N1: package-комментарии
+        - name: var-naming
+        - name: error-strings
+    gosec:
+      excludes:
+        - G115           # integer overflow conversion — много ложных в pgx/времени
+  exclusions:
+    generated: lax
+    rules:
+      # В тестах не гоняем SAST/строгий errcheck/bodyclose — это шум, а не риск
+      # продакшена; покрытие тестов улучшает отдельный чейндж (CH17).
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - bodyclose
+      # Миграции и сгенерированный код — без modernize/строгих правил.
+      - path: (^|/)migrations/
+        linters:
+          - revive
+          - misspell
+
+formatters:
+  enable:
+    - gofmt

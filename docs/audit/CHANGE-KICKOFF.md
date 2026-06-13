@@ -37,7 +37,7 @@
 5. Прочитай openspec/config.yaml (контекст + rules) и затронутые
    capability-спеки в openspec/specs/.
 6. Создай чейндж через opsx (/opsx:propose или /opsx:new), имя
-   <YYYY-MM-DD>-<slug>. Артефакты по rules репозитория: на русском;
+   <slug>. Артефакты по rules репозитория: на русском;
    в proposal Impact перечисляет затронутые сервисы и события RabbitMQ;
    изменения API/событий помечай **BREAKING**; capability-дельта только
    если меняется наблюдаемое поведение продуктовой capability (иначе —
