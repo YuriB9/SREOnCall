@@ -1,7 +1,7 @@
 # CI — гейт качества для go.work-монорепо (находки аудита T1, DC2).
 # Матрица по модулям воркспейса: build + race-тесты + go mod tidy; отдельные
-# джобы lint (golangci-lint, only-new-issues), govulncheck (информационный до
-# CH02) и integration (Postgres/Redis).
+# джобы lint (golangci-lint, only-new-issues), govulncheck (блокирующий гейт)
+# и integration (Postgres/Redis).
 name: CI
 
 on:
@@ -124,10 +124,8 @@ jobs:
   govulncheck:
     name: govulncheck (${{ matrix.module }})
     needs: build-tools
-    # ВРЕМЕННО информационный (continue-on-error): сейчас сообщит о достижимых
-    # уязвимостях auth (находка DC1). Их фикс — CH02 (bump-vulnerable-auth-deps);
-    # тот чейндж снимает continue-on-error и делает джоб блокирующим гейтом.
-    continue-on-error: true
+    # Блокирующий гейт: DC1 (GO-2025-3553, GO-2025-3376) закрыт в CH02
+    # (bump-vulnerable-auth-deps). Любой новый достижимый адвизори валит CI.
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
