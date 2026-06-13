@@ -24,7 +24,7 @@
 | CH | Чейндж | Фаза | Зависит от | Статус |
 | --- | --- | --- | --- | --- |
 | CH01 | add-ci-and-quality-gates | 0 | — | ✅ |
-| CH02 | bump-vulnerable-auth-deps | 0 | — | ☐ |
+| CH02 | bump-vulnerable-auth-deps | 0 | — | ✅ |
 | CH03 | harden-auth-validation | 1 | CH01 | ☐ |
 | CH04 | guard-webhook-ssrf | 1 | CH01 | ☐ |
 | CH05 | extract-bus-contracts | 2 | CH01 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **1 / 19** done.
+Прогресс: **2 / 19** done.
 
 ---
 
@@ -64,12 +64,18 @@
 > - **Backlog для CH17/T5:** `go vet` httpresponse в `handler_test.go` (escalation/incident/scheduling) — латентный nil-deref, вскрыт снятием тега, отложен по объёму.
 > - **Git-воркфлоу с этого момента — через PR** (Actions настроен): мерж по зелёному CI.
 
-### CH02 · `bump-vulnerable-auth-deps` 🟢
+### CH02 · `bump-vulnerable-auth-deps` 🟢 — ✅ done (2026-06-13)
 **Корень:** достижимые CVE в дереве зависимостей.
-**Закрывает:** DC1 (jwt/v5 → v5.2.2 [GO-2025-3553], jwkset → v0.6.0 [GO-2025-3376]).
+**Закрывает:** DC1 (jwt/v5 → v5.2.2 [GO-2025-3553], jwkset → v0.11.0 [GO-2025-3376]).
 **Содержимое:** бамп версий в каждом модуле с auth, `go mod tidy`, перепроверка `govulncheck`.
 **Зависит от:** —. Срочно (две достижимые уязвимости в пути auth); верифицируется гейтом из CH01.
-> **Доп. задача (хэндофф CH01):** после фикса DC1 снять `continue-on-error: true` с джоба `govulncheck` в `.github/workflows/ci.yml` — сделать его блокирующим гейтом.
+
+> **Реализовано.** Чейндж `bump-vulnerable-auth-deps` (no-delta infra/tooling, архив с `--skip-specs`).
+> Что важно для следующих сессий:
+> - **`jwkset v0.6.0` из аудита ретрактнута автором** (гонка в refresh, PR #42), а текущая `keyfunc/v3 v3.3.5` сама в ретракт-диапазоне `[v3.0.0, v3.3.5]` по GO-2025-3376. Фикс взят через бамп **`keyfunc/v3 v3.3.5 → v3.8.0`**, который тянет неретракт-фикс **`jwkset v0.5.19 → v0.11.0`** и **`jwt/v5 v5.2.1 → v5.2.2`**.
+> - `govulncheck ./...` — **0 vulnerabilities** во всех 6 модулях. `services/ingestion` auth не использует (auth-зависимостей нет).
+> - **Джоб `govulncheck` в CI теперь блокирующий** (снят `continue-on-error`). Любой новый достижимый адвизори валит CI.
+> - Go-исходники не менялись — только `go.mod`/`go.sum` + `ci.yml`.
 
 ---
 
