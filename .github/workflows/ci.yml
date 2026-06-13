@@ -95,7 +95,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ci-tools
           path: bin
@@ -145,7 +145,7 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ matrix.module }}/go.sum
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ci-tools
           path: bin
