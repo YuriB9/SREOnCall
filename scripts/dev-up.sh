@@ -2,8 +2,13 @@
 # dev-up.sh — запустить все зависимости и сервисы локально.
 #
 # Режимы запуска:
-#   bash scripts/dev-up.sh                  # без Keycloak (auth bypass)
+#   bash scripts/dev-up.sh                  # без Keycloak (AUTH_DISABLED=true)
 #   WITH_KEYCLOAK=1 bash scripts/dev-up.sh  # с Keycloak (JWT validation)
+#
+# Примечание: с CH03 (harden-auth-validation) auth работает fail-closed —
+# при пустом KEYCLOAK_JWKS_URL сервис не стартует без AUTH_DISABLED=true.
+# JWKS по http (локальный Keycloak) требует AUTH_INSECURE=true. Скрипт
+# выставляет оба флага автоматически в зависимости от режима.
 #
 # Переменные для режима WITH_KEYCLOAK (можно передать снаружи):
 #   KEYCLOAK_CLIENT_SECRET  — client secret для oncall-api (обязателен)
@@ -63,6 +68,11 @@ KEYCLOAK_REALM="${KEYCLOAK_REALM:-oncall}"
 KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-oncall-api}"
 KEYCLOAK_CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
 KEYCLOAK_JWKS_URL=""
+# Флаги fail-closed-аутентификации (CH03). По умолчанию auth отключён;
+# с Keycloak — включён, но JWKS тянется по http (локальный Keycloak),
+# поэтому разрешаем http через AUTH_INSECURE.
+AUTH_DISABLED="true"
+AUTH_INSECURE=""
 
 if [[ -n "$WITH_KEYCLOAK" ]]; then
   if [[ -z "$KEYCLOAK_CLIENT_SECRET" ]]; then
@@ -70,9 +80,11 @@ if [[ -n "$WITH_KEYCLOAK" ]]; then
     exit 1
   fi
   KEYCLOAK_JWKS_URL="$KEYCLOAK_BASE/realms/$KEYCLOAK_REALM/protocol/openid-connect/certs"
-  echo "==> Keycloak JWT включён: $KEYCLOAK_JWKS_URL"
+  AUTH_DISABLED=""
+  AUTH_INSECURE="true"
+  echo "==> Keycloak JWT включён: $KEYCLOAK_JWKS_URL (AUTH_INSECURE=true: http JWKS)"
 else
-  echo "==> Keycloak не используется (auth bypass через X-Admin-Key)"
+  echo "==> Keycloak не используется (AUTH_DISABLED=true)"
 fi
 
 # ── 5. Запуск сервисов ────────────────────────────────────────────────────────
@@ -91,6 +103,7 @@ PIDS+=($!)
   HTTP_PORT=8081 DB_DSN="$DB_DSN" RABBITMQ_URL="$RABBITMQ_URL" \
   ADMIN_API_KEY="$ADMIN_API_KEY" LOG_LEVEL="$LOG_LEVEL" \
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
+  AUTH_DISABLED="$AUTH_DISABLED" AUTH_INSECURE="$AUTH_INSECURE" \
   /tmp/oncall-incident) &
 PIDS+=($!)
 
@@ -98,6 +111,7 @@ PIDS+=($!)
   HTTP_PORT=8082 DB_DSN="$DB_DSN" RABBITMQ_URL="$RABBITMQ_URL" \
   REDIS_ADDR="$REDIS_ADDR" ADMIN_API_KEY="$ADMIN_API_KEY" LOG_LEVEL="$LOG_LEVEL" \
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
+  AUTH_DISABLED="$AUTH_DISABLED" AUTH_INSECURE="$AUTH_INSECURE" \
   KEYCLOAK_ADMIN_URL="$KEYCLOAK_BASE" \
   KEYCLOAK_REALM="$KEYCLOAK_REALM" \
   KEYCLOAK_CLIENT_ID="$KEYCLOAK_CLIENT_ID" \
@@ -109,6 +123,7 @@ PIDS+=($!)
   HTTP_PORT=8083 DB_DSN="$DB_DSN" RABBITMQ_URL="$RABBITMQ_URL" \
   ADMIN_API_KEY="$ADMIN_API_KEY" LOG_LEVEL="$LOG_LEVEL" \
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
+  AUTH_DISABLED="$AUTH_DISABLED" AUTH_INSECURE="$AUTH_INSECURE" \
   SCHEDULING_URL="http://localhost:8082" \
   SCHEDULING_ADMIN_KEY="$ADMIN_API_KEY" \
   INCIDENT_URL="http://localhost:8081" \
@@ -120,6 +135,7 @@ PIDS+=($!)
   HTTP_PORT=8084 DB_DSN="$DB_DSN" RABBITMQ_URL="$RABBITMQ_URL" \
   REDIS_ADDR="$REDIS_ADDR" ADMIN_API_KEY="$ADMIN_API_KEY" LOG_LEVEL="$LOG_LEVEL" \
   KEYCLOAK_JWKS_URL="$KEYCLOAK_JWKS_URL" \
+  AUTH_DISABLED="$AUTH_DISABLED" AUTH_INSECURE="$AUTH_INSECURE" \
   SCHEDULING_URL="http://localhost:8082" \
   SCHEDULING_ADMIN_KEY="$ADMIN_API_KEY" \
   FRONTEND_BASE_URL="http://localhost:5173" \
