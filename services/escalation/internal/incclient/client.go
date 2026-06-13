@@ -2,11 +2,9 @@ package incclient
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"strings"
-	"time"
+
+	"github.com/sre-oncall/pkg/httpclient"
 )
 
 // Incident is the subset of the incident-service response used for
@@ -19,41 +17,22 @@ type Incident struct {
 }
 
 type Client struct {
-	baseURL    string
-	adminKey   string
-	httpClient *http.Client
+	base *httpclient.Client
 }
 
 // New creates an incident-service client. adminKey, when non-empty, is sent as
 // X-Admin-Key on every request for service-to-service authentication.
 func New(baseURL, adminKey string) *Client {
-	return &Client{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		adminKey:   adminKey,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-	}
+	return &Client{base: httpclient.New(baseURL, adminKey)}
 }
 
+// GetIncident fetches an incident. A missing incident (404) is returned as
+// errs.ErrNotFound (wrapped), so callers can errors.Is across the boundary.
 func (c *Client) GetIncident(ctx context.Context, tenantID, incidentID string) (*Incident, error) {
-	url := fmt.Sprintf("%s/api/incidents/v1/%s/incidents/%s", c.baseURL, tenantID, incidentID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("incclient: build request: %w", err)
-	}
-	if c.adminKey != "" {
-		req.Header.Set("X-Admin-Key", c.adminKey)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("incclient: do request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("incclient: status %d for incident %s", resp.StatusCode, incidentID)
-	}
+	path := fmt.Sprintf("/api/incidents/v1/%s/incidents/%s", tenantID, incidentID)
 	var inc Incident
-	if err := json.NewDecoder(resp.Body).Decode(&inc); err != nil {
-		return nil, fmt.Errorf("incclient: decode: %w", err)
+	if err := c.base.GetJSON(ctx, path, &inc); err != nil {
+		return nil, fmt.Errorf("incclient: incident %s: %w", incidentID, err)
 	}
 	return &inc, nil
 }

@@ -2,10 +2,11 @@ package schedclient
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
-	"time"
+
+	"github.com/sre-oncall/pkg/errs"
+	"github.com/sre-oncall/pkg/httpclient"
 )
 
 type TenantNotificationConfig struct {
@@ -19,46 +20,25 @@ type TenantNotificationConfig struct {
 }
 
 type Client struct {
-	baseURL    string
-	adminKey   string
-	httpClient *http.Client
+	base *httpclient.Client
 }
 
 // New creates a scheduling client. adminKey, when non-empty, is sent as
 // X-Admin-Key on every request for service-to-service authentication.
 func New(baseURL, adminKey string) *Client {
-	return &Client{
-		baseURL:    baseURL,
-		adminKey:   adminKey,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-	}
+	return &Client{base: httpclient.New(baseURL, adminKey)}
 }
 
 // GetTenantNotificationConfig fetches tenant notification config from the scheduling service.
 // Returns nil (not error) if the tenant has no config (404).
 func (c *Client) GetTenantNotificationConfig(ctx context.Context, tenantSlug string) (*TenantNotificationConfig, error) {
-	url := fmt.Sprintf("%s/api/schedules/v1/tenants/%s/notification-config", c.baseURL, tenantSlug)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if c.adminKey != "" {
-		req.Header.Set("X-Admin-Key", c.adminKey)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("schedclient: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("schedclient: unexpected status %d", resp.StatusCode)
-	}
+	path := fmt.Sprintf("/api/schedules/v1/tenants/%s/notification-config", tenantSlug)
 	var cfg TenantNotificationConfig
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("schedclient: decode: %w", err)
+	if err := c.base.GetJSON(ctx, path, &cfg); err != nil {
+		if errors.Is(err, errs.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("schedclient: %w", err)
 	}
 	return &cfg, nil
 }

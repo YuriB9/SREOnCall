@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"os"
+
+	pkgconfig "github.com/sre-oncall/pkg/config"
+)
 
 type Config struct {
 	HTTPPort          string
@@ -22,7 +26,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		HTTPPort:             getenv("HTTP_PORT", "8082"),
+		HTTPPort:             pkgconfig.String("HTTP_PORT", "8082"),
 		DBDSN:                os.Getenv("DB_DSN"),
 		AdminKey:             os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL:      os.Getenv("KEYCLOAK_JWKS_URL"),
@@ -30,18 +34,11 @@ func Load() Config {
 		KeycloakAudience:     os.Getenv("KEYCLOAK_AUDIENCE"),
 		AuthDisabled:         os.Getenv("AUTH_DISABLED") == "true",
 		AllowInsecureJWKS:    os.Getenv("AUTH_INSECURE") == "true",
-		RedisAddr:            getenv("REDIS_ADDR", "localhost:6379"),
+		RedisAddr:            pkgconfig.String("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:        os.Getenv("REDIS_PASSWORD"),
-		KeycloakAdminURL:     getenv("KEYCLOAK_ADMIN_URL", "http://localhost:8080"),
-		KeycloakRealm:        getenv("KEYCLOAK_REALM", "oncall"),
+		KeycloakAdminURL:     pkgconfig.String("KEYCLOAK_ADMIN_URL", "http://localhost:8080"),
+		KeycloakRealm:        pkgconfig.String("KEYCLOAK_REALM", "oncall"),
 		KeycloakClientID:     os.Getenv("KEYCLOAK_CLIENT_ID"),
 		KeycloakClientSecret: os.Getenv("KEYCLOAK_CLIENT_SECRET"),
 	}
-}
-
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }

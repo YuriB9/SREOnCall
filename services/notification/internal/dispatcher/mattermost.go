@@ -22,6 +22,11 @@ func NewMattermost() *Mattermost {
 	// dialer refuses the connection at dial time.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = ssrf.GuardedDialContext(&net.Dialer{Timeout: 10 * time.Second})
+	// Reuse keep-alive connections under concurrency instead of the default
+	// MaxIdleConnsPerHost=2 (P4).
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 50
+	transport.IdleConnTimeout = 90 * time.Second
 	return &Mattermost{httpClient: &http.Client{Timeout: 10 * time.Second, Transport: transport}}
 }
 
