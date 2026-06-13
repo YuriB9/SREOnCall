@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -401,7 +402,8 @@ func TestHandler_NotificationConfig(t *testing.T) {
 	srv, _ := newTenantSrv(t)
 	defer srv.Close()
 
-	body := `{"mattermost_webhook_url":"https://mm.example.com/hook","mattermost_channel":"oncall","smtp_from":"oncall@example.com"}`
+	// Literal public IP keeps the test offline (no DNS) while passing the SSRF guard.
+	body := `{"mattermost_webhook_url":"https://203.0.113.10/hook","mattermost_channel":"oncall","smtp_from":"oncall@example.com"}`
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(req)
@@ -419,6 +421,61 @@ func TestHandler_NotificationConfig(t *testing.T) {
 	_ = json.NewDecoder(resp2.Body).Decode(&cfg)
 	if cfg["mattermost_channel"] != "oncall" {
 		t.Errorf("expected mattermost_channel=oncall, got %q", cfg["mattermost_channel"])
+	}
+}
+
+func TestHandler_NotificationConfig_SSRFGuard(t *testing.T) {
+	t.Parallel()
+	srv, _ := newTenantSrv(t)
+	defer srv.Close()
+
+	cfgURL := srv.URL + "/api/schedules/v1/tenants/tenant-a/notification-config"
+	putURL := func(t *testing.T, raw string) int {
+		t.Helper()
+		body := `{"mattermost_webhook_url":"` + raw + `","mattermost_channel":"changed"}`
+		req, err := http.NewRequest(http.MethodPut, cfgURL, bytes.NewBufferString(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	// Seed a valid stored URL via a literal public IP.
+	if code := putURL(t, "https://203.0.113.10/hook"); code != http.StatusOK {
+		t.Fatalf("seed PUT: expected 200, got %d", code)
+	}
+
+	// Each unsafe URL must be rejected with 422 (sequential: the final check below
+	// asserts the seeded value survived every rejected write).
+	rejected := []string{
+		"http://203.0.113.10/hook",            // not https
+		"https://127.0.0.1/hook",              // loopback
+		"https://169.254.169.254/latest/meta", // cloud metadata
+		"https://10.0.0.5/hook",               // RFC 1918
+	}
+	for _, raw := range rejected {
+		if code := putURL(t, raw); code != http.StatusUnprocessableEntity {
+			t.Errorf("PUT %s: expected 422, got %d", raw, code)
+		}
+	}
+
+	// The stored URL must be untouched after the rejected writes.
+	resp, err := http.Get(cfgURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var cfg map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&cfg)
+	// GET masks the URL to scheme://host/***; the host must still be the seeded one.
+	if !strings.Contains(cfg["mattermost_webhook_url"], "203.0.113.10") {
+		t.Errorf("stored webhook URL changed after rejected writes: %q", cfg["mattermost_webhook_url"])
 	}
 }
 
@@ -556,7 +613,8 @@ func TestTenantNotificationConfig_PutNonEmptyURLReplaces(t *testing.T) {
 	srv := httptest.NewServer(withAuthMethod(auth.MethodUser, newTenantRouter(h)))
 	defer srv.Close()
 
-	body := `{"mattermost_webhook_url":"https://mm.example.com/hooks/new"}`
+	// Literal public IP keeps the test offline while passing the SSRF guard.
+	body := `{"mattermost_webhook_url":"https://203.0.113.10/hooks/new"}`
 	req, _ := http.NewRequest(http.MethodPut,
 		srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -569,7 +627,7 @@ func TestTenantNotificationConfig_PutNonEmptyURLReplaces(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	if got := st.notifCfg["tenant-a"].MattermostWebhookURL; got != "https://mm.example.com/hooks/new" {
+	if got := st.notifCfg["tenant-a"].MattermostWebhookURL; got != "https://203.0.113.10/hooks/new" {
 		t.Errorf("stored webhook URL = %q, want replaced", got)
 	}
 }
