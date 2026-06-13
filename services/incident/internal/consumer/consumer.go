@@ -11,9 +11,9 @@ import (
 
 	amqp091 "github.com/rabbitmq/amqp091-go"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
-	"github.com/sre-oncall/incident/internal/publisher"
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	"github.com/sre-oncall/pkg/domain"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // Store is the subset of store.Store used by the consumer.
@@ -31,8 +31,8 @@ type Store interface {
 
 // Publisher publishes incident events.
 type Publisher interface {
-	PublishCreated(ctx context.Context, ev publisher.IncidentEvent) error
-	PublishUpdated(ctx context.Context, ev publisher.IncidentEvent) error
+	PublishCreated(ctx context.Context, ev events.IncidentChanged) error
+	PublishUpdated(ctx context.Context, ev events.IncidentChanged) error
 }
 
 type Consumer struct {
@@ -173,7 +173,7 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 		Fingerprint: alert.Fingerprint,
 		Source:      string(alert.Source),
 		GroupKey:    groupKey,
-		Status:      incdomain.AlertFiring,
+		Status:      domain.AlertStatusFiring,
 	}
 	if err := c.store.AttachAlert(ctx, ia); err != nil {
 		return fmt.Errorf("attach alert: %w", err)
@@ -182,7 +182,7 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 	if created {
 		inc, _ := c.store.GetIncident(ctx, tenantID, incidentID)
 		if inc != nil {
-			ev := publisher.IncidentEvent{
+			ev := events.IncidentChanged{
 				IncidentID: inc.ID,
 				TenantID:   inc.TenantID,
 				TenantSlug: inc.TenantSlug,
@@ -224,7 +224,7 @@ func (c *Consumer) handleResolved(ctx context.Context, alert domain.Alert) error
 
 		inc, _ := c.store.GetIncident(ctx, alert.TenantID, incidentID)
 		if inc != nil {
-			ev := publisher.IncidentEvent{
+			ev := events.IncidentChanged{
 				IncidentID: inc.ID,
 				TenantID:   inc.TenantID,
 				TenantSlug: inc.TenantSlug,

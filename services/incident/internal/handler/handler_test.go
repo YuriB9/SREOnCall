@@ -13,8 +13,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	incdomain "github.com/sre-oncall/incident/internal/domain"
 	"github.com/sre-oncall/incident/internal/handler"
-	"github.com/sre-oncall/incident/internal/publisher"
 	"github.com/sre-oncall/incident/internal/store"
+	"github.com/sre-oncall/pkg/domain"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── In-memory store stub ─────────────────────────────────────────────────────
@@ -154,8 +155,8 @@ func (m *memHandler) ListGroupingRules(_ context.Context, tenantID string) ([]*i
 
 type noopPub struct{}
 
-func (*noopPub) PublishCreated(_ context.Context, _ publisher.IncidentEvent) error { return nil }
-func (*noopPub) PublishUpdated(_ context.Context, _ publisher.IncidentEvent) error { return nil }
+func (*noopPub) PublishCreated(_ context.Context, _ events.IncidentChanged) error { return nil }
+func (*noopPub) PublishUpdated(_ context.Context, _ events.IncidentChanged) error { return nil }
 
 // ── Router helper ─────────────────────────────────────────────────────────────
 
@@ -281,9 +282,9 @@ func TestHandler_ListIncidents_StatusFilter(t *testing.T) {
 func TestHandler_ListIncidentAlerts(t *testing.T) {
 	st := newMemHandler()
 	st.alerts = []*incdomain.IncidentAlert{
-		{ID: "a1", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-1", Source: "alertmanager", Status: incdomain.AlertFiring},
-		{ID: "a2", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-2", Source: "grafana", Status: incdomain.AlertResolved},
-		{ID: "a3", IncidentID: "other", TenantID: "tenant-a", Fingerprint: "fp-3", Source: "grafana", Status: incdomain.AlertFiring},
+		{ID: "a1", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-1", Source: "alertmanager", Status: domain.AlertStatusFiring},
+		{ID: "a2", IncidentID: "inc1", TenantID: "tenant-a", Fingerprint: "fp-2", Source: "grafana", Status: domain.AlertStatusResolved},
+		{ID: "a3", IncidentID: "other", TenantID: "tenant-a", Fingerprint: "fp-3", Source: "grafana", Status: domain.AlertStatusFiring},
 	}
 	h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	srv := httptest.NewServer(newTestRouter(h))

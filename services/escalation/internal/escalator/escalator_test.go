@@ -10,9 +10,9 @@ import (
 
 	"github.com/sre-oncall/escalation/internal/domain"
 	"github.com/sre-oncall/escalation/internal/escalator"
-	"github.com/sre-oncall/escalation/internal/publisher"
 	"github.com/sre-oncall/escalation/internal/schedclient"
 	"github.com/sre-oncall/escalation/internal/store"
+	"github.com/sre-oncall/pkg/events"
 )
 
 // ── Stubs ──────────────────────────────────────────────────────────────────────
@@ -108,16 +108,16 @@ func (c *mockSchedClient) GetOnCall(_ context.Context, _, _ string) (*schedclien
 }
 
 type mockPublisher struct {
-	triggered []publisher.TriggeredEvent
-	exhausted []publisher.ExhaustedEvent
+	triggered []events.EscalationTriggered
+	exhausted []events.EscalationExhausted
 }
 
-func (p *mockPublisher) PublishTriggered(_ context.Context, ev publisher.TriggeredEvent) error {
+func (p *mockPublisher) PublishTriggered(_ context.Context, ev events.EscalationTriggered) error {
 	p.triggered = append(p.triggered, ev)
 	return nil
 }
 
-func (p *mockPublisher) PublishExhausted(_ context.Context, ev publisher.ExhaustedEvent) error {
+func (p *mockPublisher) PublishExhausted(_ context.Context, ev events.EscalationExhausted) error {
 	p.exhausted = append(p.exhausted, ev)
 	return nil
 }

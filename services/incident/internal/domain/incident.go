@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/sre-oncall/pkg/domain"
+)
 
 type Status string
 
@@ -8,13 +12,6 @@ const (
 	StatusOpen         Status = "open"
 	StatusAcknowledged Status = "acknowledged"
 	StatusResolved     Status = "resolved"
-)
-
-type AlertStatus string
-
-const (
-	AlertFiring   AlertStatus = "firing"
-	AlertResolved AlertStatus = "resolved"
 )
 
 type HistoryKind string
@@ -41,14 +38,14 @@ type Incident struct {
 }
 
 type IncidentAlert struct {
-	ID          string      `json:"id"`
-	IncidentID  string      `json:"incident_id"`
-	TenantID    string      `json:"tenant_id"`
-	Fingerprint string      `json:"fingerprint"`
-	Source      string      `json:"source"`
-	GroupKey    string      `json:"group_key"`
-	Status      AlertStatus `json:"status"`
-	AttachedAt  time.Time   `json:"attached_at"`
+	ID          string             `json:"id"`
+	IncidentID  string             `json:"incident_id"`
+	TenantID    string             `json:"tenant_id"`
+	Fingerprint string             `json:"fingerprint"`
+	Source      string             `json:"source"`
+	GroupKey    string             `json:"group_key"`
+	Status      domain.AlertStatus `json:"status"`
+	AttachedAt  time.Time          `json:"attached_at"`
 }
 
 type Comment struct {
