@@ -2,23 +2,18 @@ package main
 
 import (
 	"context"
-	"errors"
-	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"golang.org/x/sync/errgroup"
 
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
+	pkghttpserver "github.com/sre-oncall/pkg/httpserver"
 	pkglogger "github.com/sre-oncall/pkg/logger"
-	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 
 	"github.com/sre-oncall/incident/internal/config"
@@ -73,41 +68,28 @@ func main() {
 	cons := consumer.New(st, pub, logger)
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
-	var authMW func(http.Handler) http.Handler
-	switch {
-	case cfg.KeycloakJWKSURL != "":
-		if cfg.KeycloakIssuer == "" || cfg.KeycloakAudience == "" {
-			logger.Warn("JWT iss/aud не проверяется: задайте KEYCLOAK_ISSUER и KEYCLOAK_AUDIENCE для полной валидации")
-		}
-		mw, err := pkgauth.Middleware(pkgauth.Options{
-			JWKSURL:           cfg.KeycloakJWKSURL,
-			AdminKey:          cfg.AdminKey,
-			Issuer:            cfg.KeycloakIssuer,
-			Audience:          cfg.KeycloakAudience,
-			AllowInsecureJWKS: cfg.AllowInsecureJWKS,
-		})
-		if err != nil {
-			logger.Error("auth middleware init failed", "err", err)
-			os.Exit(1)
-		}
-		authMW = mw
-	case cfg.AuthDisabled:
-		logger.Warn("AUTH_DISABLED=true: запросы проходят без аутентификации — только для локальной разработки")
-		authMW = func(next http.Handler) http.Handler { return next }
-	default:
-		logger.Error("KEYCLOAK_JWKS_URL не задан; для отключения аутентификации в локалке установите AUTH_DISABLED=true")
+	authMW, err := pkgauth.MiddlewareOrPassthrough(pkgauth.Options{
+		JWKSURL:           cfg.KeycloakJWKSURL,
+		AdminKey:          cfg.AdminKey,
+		Issuer:            cfg.KeycloakIssuer,
+		Audience:          cfg.KeycloakAudience,
+		AllowInsecureJWKS: cfg.AllowInsecureJWKS,
+	}, cfg.AuthDisabled, logger)
+	if err != nil {
+		logger.Error("auth middleware init failed", "err", err)
 		os.Exit(1)
 	}
 
-	// ── Router ───────────────────────────────────────────────────────────────
-	r := chi.NewRouter()
-	r.Use(chiMiddleware.Recoverer)
-	r.Use(chiMiddleware.RequestID)
-	r.Use(pkgmetrics.Middleware("incident"))
+	// ── Background goroutines (joined on shutdown) ─────────────────────────────
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return cons.Run(gctx, amqpConn) })
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Handle("/metrics", pkgmetrics.Handler())
+	// ── Router ───────────────────────────────────────────────────────────────
+	r := pkghttpserver.NewRouter("incident",
+		pkghttpserver.Check{Name: "postgres", Probe: pool.Ping},
+		pkghttpserver.BoolCheck("amqp", amqpConn.Ready),
+		pkghttpserver.BoolCheck("consumer", cons.Healthy),
+	)
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
@@ -129,32 +111,11 @@ func main() {
 		})
 	})
 
-	// ── Background goroutines (joined on shutdown) ─────────────────────────────
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return cons.Run(gctx, amqpConn) })
-
-	// ── HTTP server ──────────────────────────────────────────────────────────
-	srv := &http.Server{
-		Addr:         ":" + cfg.HTTPPort,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	// ── HTTP server: serve until ctx is cancelled, then drain ──────────────────
+	if err := pkghttpserver.Run(ctx, ":"+cfg.HTTPPort, r, logger); err != nil {
+		logger.Error("server error", "err", err)
+		os.Exit(1)
 	}
-
-	go func() {
-		logger.Info("incident service started", "port", cfg.HTTPPort)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	// ── Graceful shutdown: drain HTTP, then background goroutines, then conn ────
-	<-ctx.Done()
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutCtx)
 	_ = g.Wait()         // drain in-flight consumer work (C2)
 	_ = amqpConn.Close() // explicit close (C2)
 }

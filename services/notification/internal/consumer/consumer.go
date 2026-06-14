@@ -14,17 +14,23 @@ import (
 type Consumer struct {
 	notifier *notifier.Notifier
 	logger   *slog.Logger
+	probe    *pkgamqp.Probe
 }
 
 func New(n *notifier.Notifier, logger *slog.Logger) *Consumer {
-	return &Consumer{notifier: n, logger: logger}
+	return &Consumer{notifier: n, logger: logger, probe: pkgamqp.NewProbe()}
 }
+
+// Healthy reports whether the consumer is currently attached to the broker,
+// for the /readyz probe (O1).
+func (c *Consumer) Healthy() bool { return c.probe.Healthy() }
 
 // Run consumes from escalations.notification via the resilient pkg/amqp
 // framework and blocks until ctx is cancelled.
 func (c *Consumer) Run(ctx context.Context, conn *pkgamqp.Connection) error {
 	return pkgamqp.Consume(ctx, conn, pkgamqp.ConsumeOptions{
 		Queue:  pkgamqp.QueueEscalationsNotification,
+		Probe:  c.probe,
 		Logger: c.logger,
 	}, c.handle)
 }

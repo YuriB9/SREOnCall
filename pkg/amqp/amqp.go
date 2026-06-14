@@ -51,6 +51,12 @@ func (c *Connection) current() *amqp.Connection {
 	return c.conn
 }
 
+// Ready reports whether the underlying broker connection is currently open.
+// Used by readiness probes to avoid serving traffic while RabbitMQ is down (O1).
+func (c *Connection) Ready() bool {
+	return c.current() != nil
+}
+
 // Channel returns a new AMQP channel, reconnecting if the underlying connection
 // is closed. The mutex is never held across the reconnect backoff (C4); ctx
 // cancels the backoff (C5).

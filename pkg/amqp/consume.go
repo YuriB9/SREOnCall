@@ -48,6 +48,10 @@ type ConsumeOptions struct {
 	// per-message context does not inherit cancellation from the run context
 	// (WithoutCancel), so in-flight work drains on shutdown instead of aborting.
 	HandlerTimeout time.Duration
+	// Probe, if set, is marked Up while a channel is open and consuming and Down
+	// when the loop is reconnecting or stopped. Readiness probes read it to
+	// detect a consumer that lost its broker connection (O1). Optional.
+	Probe *Probe
 	// Logger receives lifecycle and error logs (required).
 	Logger *slog.Logger
 }
@@ -82,6 +86,7 @@ func (o ConsumeOptions) handlerTimeout() time.Duration {
 func Consume(ctx context.Context, conn *Connection, opts ConsumeOptions, h Handler) error {
 	const maxBackoff = 30 * time.Second
 	backoff := time.Second
+	defer opts.Probe.set(false) // Down once the supervisor exits (shutdown).
 	for ctx.Err() == nil {
 		err := consumeOnce(ctx, conn, opts, h)
 		if ctx.Err() != nil {
@@ -123,6 +128,11 @@ func consumeOnce(ctx context.Context, conn *Connection, opts ConsumeOptions, h H
 	if err != nil {
 		return fmt.Errorf("consumer: consume: %w", err)
 	}
+
+	// Connected and consuming: mark healthy for readiness, Down again on return
+	// (channel closed / reconnect / shutdown) so /readyz reflects the drop (O1).
+	opts.Probe.set(true)
+	defer opts.Probe.set(false)
 
 	opts.Logger.Info("consumer started", "queue", opts.Queue, "concurrency", opts.concurrency())
 

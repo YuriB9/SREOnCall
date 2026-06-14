@@ -32,7 +32,7 @@
 | CH07 | consumer-resilience | 3 | CH05 | ✅ |
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ✅ |
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ✅ |
-| CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ☐ |
+| CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ✅ |
 | CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ☐ |
 | CH12 | log-correlation | 5 | CH10 | ☐ |
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **9 / 19** done.
+Прогресс: **10 / 19** done.
 
 ---
 
@@ -241,11 +241,21 @@
 
 ## Фаза 4 — Консолидация HTTP-сервера
 
-### CH10 · `shared-httpserver-and-readiness` 🟡
+### CH10 · `shared-httpserver-and-readiness` 🟡 — ✅ done (2026-06-14)
 **Корень:** разнобой bootstrap/middleware между сервисами.
 **Закрывает:** F4 (`pkg/httpserver` — сервер с едиными таймаутами + graceful shutdown), E1 (`Recoverer` во всех 5 сервисах), F10 (auth-toggle в общий хелпер), O6 (`RequestID` везде), S6 (входной rate-limit middleware), F5 (scheduling → `pkglogger.New(cfg.LogLevel)` + поле `LogLevel`), F9 (один `escalator.New`), O1 (content-aware `/readyz`: БД/Redis/AMQP + живость консьюмера), E6 (не отдавать `err.Error()` клиенту).
 **Содержимое:** новый `pkg/httpserver`, переразводка всех `main.go`.
 **Зависит от:** CH07 (сигнал живости консьюмера для `/readyz`), CH03 (auth-wiring собирается тут же).
+
+> **Реализовано.** Чейндж `shared-httpserver-and-readiness` (no-delta infra/ops, архив с `--skip-specs`). См. ADR-0017.
+> Что важно для следующих сессий:
+> - **Новый пакет `pkg/httpserver`:** `Run(ctx, addr, handler, logger)` (единые таймауты Read/ReadHeader/Write=15s, Idle=60s + graceful shutdown, F4); `NewRouter(service, checks...)` — обязательная цепочка `RequestID → Recoverer → metrics` + `/healthz`(статический liveness) + content-aware `/readyz` + `/metrics` (E1/O6/O1); `RateLimit(rps, burst)` per-IP token bucket (S6); `Check{Name, Probe}` и `BoolCheck(name, ok)`. **Для CH11** (`O2`/`R1`): метрик-middleware и доменные метрики навешивать здесь; сейчас `metrics.Middleware` всё ещё метит `r.URL.Path` (R1 не трогался). **Для CH12** (`request_id`) и **CH13** (`otelhttp`): дополнять эту же цепочку.
+> - **`/readyz` теперь content-aware (O1):** возвращает **503**, если любая критичная зависимость недоступна. Состав проверок задаёт каждый `main`: ingestion=Postgres+Redis+AMQP `conn.Ready`; incident=Postgres+AMQP+consumer; escalation/notification=Postgres(+Redis у notification)+consumer **только при заданном `RABBITMQ_URL`**; scheduling=Postgres(+Redis если поднялся). **Операционное изменение поведения k8s** (под помечается NotReady при сбое зависимости) — манифесты проб менять не нужно. `/healthz` остался статическим.
+> - **Сигнал живости консьюмера — `pkg/amqp.Probe`** (atomic Up/Down), выставляется supervisor-петлёй `Consume` (`ConsumeOptions.Probe`); `Connection.Ready()` = соединение открыто. Каждый `Consumer` (incident/escalation/notification) держит probe и экспонирует `Healthy() bool`. Закрыт остаток из заметки CH07. Wire-формат не менялся.
+> - **F10:** `pkgauth.MiddlewareOrPassthrough(opts, authDisabled, logger)` — единственная реализация fail-closed-toggle (ADR-0012 1:1); дубли из 4 `main.go` удалены. **F5:** scheduling перешёл на `pkglogger.New(cfg.LogLevel)` (+ поле `LogLevel`/env `LOG_LEVEL`). **F9:** escalation создаёт `escalator.New` один раз. **E6:** incident отдаёт стабильное `"invalid status transition"` (через `errors.As ErrInvalidTransition`), детали — в лог.
+> - **S6:** ingestion ограничивает webhook-роуты per-IP (`RATE_LIMIT_RPS`=50/`RATE_LIMIT_BURST`=100 по умолчанию). In-memory **per-pod** — не делится между репликами.
+> - **API/события RabbitMQ/схема БД — без изменений; не BREAKING.** Дельты спека нет.
+> - Проверки: `go build/vet/test` всех 6 модулей, **`-race`** (pkg/amqp+httpserver, чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` (`golang.org/x/time`→direct в pkg). Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
 ---
 

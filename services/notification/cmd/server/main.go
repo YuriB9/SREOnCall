@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,8 +13,8 @@ import (
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
+	pkghttpserver "github.com/sre-oncall/pkg/httpserver"
 	pkglogger "github.com/sre-oncall/pkg/logger"
-	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 	pkgredis "github.com/sre-oncall/pkg/redis"
 
@@ -102,39 +101,28 @@ func main() {
 	}
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
-	var authMW func(http.Handler) http.Handler
-	switch {
-	case cfg.KeycloakJWKSURL != "":
-		if cfg.KeycloakIssuer == "" || cfg.KeycloakAudience == "" {
-			logger.Warn("JWT iss/aud не проверяется: задайте KEYCLOAK_ISSUER и KEYCLOAK_AUDIENCE для полной валидации")
-		}
-		mw, err := pkgauth.Middleware(pkgauth.Options{
-			JWKSURL:           cfg.KeycloakJWKSURL,
-			AdminKey:          cfg.AdminKey,
-			Issuer:            cfg.KeycloakIssuer,
-			Audience:          cfg.KeycloakAudience,
-			AllowInsecureJWKS: cfg.AllowInsecureJWKS,
-		})
-		if err != nil {
-			logger.Error("auth middleware init failed", "err", err)
-			os.Exit(1)
-		}
-		authMW = mw
-	case cfg.AuthDisabled:
-		logger.Warn("AUTH_DISABLED=true: запросы проходят без аутентификации — только для локальной разработки")
-		authMW = func(next http.Handler) http.Handler { return next }
-	default:
-		logger.Error("KEYCLOAK_JWKS_URL не задан; для отключения аутентификации в локалке установите AUTH_DISABLED=true")
+	authMW, err := pkgauth.MiddlewareOrPassthrough(pkgauth.Options{
+		JWKSURL:           cfg.KeycloakJWKSURL,
+		AdminKey:          cfg.AdminKey,
+		Issuer:            cfg.KeycloakIssuer,
+		Audience:          cfg.KeycloakAudience,
+		AllowInsecureJWKS: cfg.AllowInsecureJWKS,
+	}, cfg.AuthDisabled, logger)
+	if err != nil {
+		logger.Error("auth middleware init failed", "err", err)
 		os.Exit(1)
 	}
 
 	// ── HTTP router ───────────────────────────────────────────────────────────
 	h := handler.New(st, logger)
-	r := chi.NewRouter()
-	r.Use(pkgmetrics.Middleware("notification"))
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Handle("/metrics", pkgmetrics.Handler())
+	checks := []pkghttpserver.Check{
+		{Name: "postgres", Probe: pool.Ping},
+		{Name: "redis", Probe: func(ctx context.Context) error { return rdb.Ping(ctx).Err() }},
+	}
+	if amqpConn != nil {
+		checks = append(checks, pkghttpserver.BoolCheck("consumer", cons.Healthy))
+	}
+	r := pkghttpserver.NewRouter("notification", checks...)
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
@@ -148,19 +136,11 @@ func main() {
 		})
 	})
 
-	srv := &http.Server{Addr: ":" + cfg.HTTPPort, Handler: r, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		logger.Info("notification service started", "port", cfg.HTTPPort)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-ctx.Done()
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutCtx)
+	// ── HTTP server: serve until ctx is cancelled, then drain ──────────────────
+	if err := pkghttpserver.Run(ctx, ":"+cfg.HTTPPort, r, logger); err != nil {
+		logger.Error("server error", "err", err)
+		os.Exit(1)
+	}
 	_ = g.Wait() // drain in-flight consumer work (C2)
 	if amqpConn != nil {
 		_ = amqpConn.Close() // explicit close (C2)
