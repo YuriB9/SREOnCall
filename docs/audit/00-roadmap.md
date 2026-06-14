@@ -33,7 +33,7 @@
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ✅ |
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ✅ |
 | CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ✅ |
-| CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ☐ |
+| CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ✅ (O2,R1; O5 вынесена) |
 | CH12 | log-correlation | 5 | CH10 | ☐ |
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
 | CH14 | bus-publish-perf | 6 | CH07 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **10 / 19** done.
+Прогресс: **11 / 19** done.
 
 ---
 
@@ -261,10 +261,21 @@
 
 ## Фаза 5 — Наблюдаемость
 
-### CH11 · `pipeline-metrics-and-alerts` 🟡
+### CH11 · `pipeline-metrics-and-alerts` 🟡 — ✅ done (2026-06-14, O2+R1; O5 вынесена)
 **Корень:** конвейер слеп для метрик.
-**Закрывает:** O2 (доменные + шинные метрики: alerts/incidents/escalations/notifications, ack/nack/requeue, длительность обработки, backlog, publish-ошибки, `pgxpool.Stat`), R1 (метить запрос `chi RoutePattern`, а не `r.URL.Path` — фикс кардинальности), O5 (`ServiceMonitor` + `PrometheusRule` золотых сигналов + базовые дашборды).
+**Закрывает:** O2 (доменные + шинные метрики: alerts/incidents/escalations/notifications, ack/nack/requeue, длительность обработки, backlog, publish-ошибки, `pgxpool.Stat`), R1 (метить запрос `chi RoutePattern`, а не `r.URL.Path` — фикс кардинальности).
 **Зависит от:** CH10 (метрик-middleware живёт там), CH07 (есть что мерить по консьюмеру).
+
+> **Реализовано.** Чейндж `pipeline-metrics-and-alerts` (no-delta infra/observability, архив с `--skip-specs`). См. ADR-0018.
+> Что важно для следующих сессий:
+> - **R1:** `pkg/metrics.Middleware` метит `chi.RouteContext(r.Context()).RoutePattern()` вместо `r.URL.Path`; неузнанный путь → лейбл `"other"`. **Изменилось значение лейбла `path`** существующих `http_*`-метрик (имена метрик прежние) — будущие дашборды строить на шаблонах роутов.
+> - **O2 шина — централизованно в `pkg/amqp`** (`pkg/amqp/metrics.go`): `amqp_messages_processed_total{queue,result=ack|requeue|drop}`, `amqp_message_processing_seconds{queue}` (в `Consume.process`), `amqp_publish_total{exchange,result=ok|error}` (в `Publisher.Publish`). **Новые консьюмеры/издатели получают сигналы бесплатно** — не дублировать в сервисах.
+> - **O2 пул pgx:** `pkg/db.RegisterPoolMetrics(service, pool)` — коллектор поверх `pgxpool.Stat()` → `db_pool_*{service}`. Вызывается из всех 5 `main.go` после `NewPool`. **Для CH15** — есть метрики для замера throughput.
+> - **O2 доменные** (паттерн `dedup`, package-level `var`+`init`): ingestion `ingestion_alerts_received_total{source}`; incident `incident_incidents_created_total`/`_resolved_total`; escalation `escalation_triggered/advanced/exhausted_total`, `escalation_getoncall_failures_total`, gauge `escalation_backlog` (монитор); notification `notification_sent_total{channel,result}`, `notification_rate_limited_total{channel}`. **Конвейерные метрики БЕЗ лейбла `tenant_id`** (кардинальность) — per-tenant разрез только в логах.
+> - **O5 (scrape/alerts/дашборды) ВЫНЕСЕНА из CH11** по решению владельца — отдельный чейндж/бэклог. Метрики уже на `/metrics`, имена зафиксированы в ADR-0018; O5 их потребит (`deploy/k8s/monitoring/`: `ServiceMonitor`+`PrometheusRule`+дашборд).
+> - **Лок lint pkg:** pkg в `go.work`, поэтому golangci-lint гонять **БЕЗ `GOWORK=off`** (с ним — `no go files to analyze`); сервисные модули — как раньше с `GOWORK=off`.
+> - **API/события RabbitMQ/схема БД — без изменений; не BREAKING.** `go mod tidy`: prometheus → direct в incident/escalation/notification.
+> - Проверки: `go build/vet/test` всех 6 модулей, `-race` (pkg+сервисные пакеты, чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых). Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17).
 
 ### CH12 · `log-correlation` 🟢
 **Корень:** логи без корреляции.
@@ -348,7 +359,7 @@ CH01 ─┬─ CH02 ────────────────────
 | CH08 | D1, D2, D3, D5, E4, R2 |
 | CH09 | F2, D4 |
 | CH10 | F4, F5, F9, F10, E1, E6, O1, O6, S6 |
-| CH11 | O2, O5, R1 |
+| CH11 | O2, R1 (O5 вынесена в отдельный чейндж) |
 | CH12 | O4, E5 |
 | CH13 | O3 |
 | CH14 | P1 |

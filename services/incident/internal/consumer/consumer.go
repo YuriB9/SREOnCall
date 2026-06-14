@@ -138,6 +138,7 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 		}
 		incidentID = inc.ID
 		created = true
+		incidentsCreated.Inc()
 	} else if err := c.store.AttachAlert(ctx, ia); err != nil {
 		return fmt.Errorf("attach alert: %w", err)
 	}
@@ -177,6 +178,7 @@ func (c *Consumer) handleResolved(ctx context.Context, alert domain.Alert) error
 	}
 
 	if closed {
+		incidentsResolved.Inc()
 		if err := c.store.AppendHistory(ctx, &incdomain.HistoryEntry{
 			IncidentID: incidentID,
 			TenantID:   alert.TenantID,

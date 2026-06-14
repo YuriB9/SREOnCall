@@ -43,6 +43,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+	pkgdb.RegisterPoolMetrics("notification", pool)
 
 	if err := pkgmigrate.Run(cfg.DBDSN, "file://./migrations", "notification_schema_migrations"); err != nil {
 		logger.Error("migrations failed", "err", err)

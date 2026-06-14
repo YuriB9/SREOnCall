@@ -125,6 +125,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 			}
 			return fmt.Errorf("advance: set exhausted: %w", err)
 		}
+		escalationsExhausted.Inc()
 		if err := e.pub.PublishExhausted(ctx, events.EscalationExhausted{
 			IncidentID: st.IncidentID,
 			TenantID:   st.TenantID,
@@ -150,6 +151,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 		}
 		return fmt.Errorf("advance: update state: %w", err)
 	}
+	escalationsAdvanced.Inc()
 
 	if err := e.triggerTier(ctx, st, nextTier); err != nil {
 		e.logger.Warn("advance: trigger tier failed", "tier", nextTier.TierNumber, "incident_id", st.IncidentID, "err", err)
@@ -226,6 +228,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 		if err != nil {
 			// The event is still published with an empty oncall_user_id; this
 			// must not pass silently — the on-call user gets no notification.
+			getOnCallFailures.Inc()
 			e.logger.Error("get on-call failed, escalating without on-call user",
 				"schedule_id", tier.NotifyScheduleID, "incident_id", st.IncidentID, "err", err)
 		} else {
@@ -259,6 +262,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 	}); err != nil {
 		return fmt.Errorf("trigger tier %d: publish: %w", tier.TierNumber, err)
 	}
+	escalationsTriggered.Inc()
 	e.logger.Info("escalation triggered",
 		"incident_id", st.IncidentID, "tier", tier.TierNumber,
 		"oncall_user", userID)

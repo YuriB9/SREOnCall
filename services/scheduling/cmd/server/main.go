@@ -35,6 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+	pkgdb.RegisterPoolMetrics("scheduling", pool)
 
 	if err := pkgmigrate.Run(cfg.DBDSN, "file://./migrations", "scheduling_schema_migrations"); err != nil {
 		logger.Error("migrations failed", "err", err)

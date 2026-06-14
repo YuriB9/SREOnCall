@@ -51,6 +51,8 @@ func (h *Handler) processAlerts(ctx context.Context, alerts []domain.Alert) erro
 }
 
 func (h *Handler) processOne(ctx context.Context, alert domain.Alert) error {
+	alertsReceived.WithLabelValues(string(alert.Source)).Inc()
+
 	var isDup bool
 
 	if alert.Status == domain.AlertStatusResolved {
