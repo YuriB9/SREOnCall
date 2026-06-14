@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"golang.org/x/sync/errgroup"
 )
@@ -161,10 +162,13 @@ func consumeOnce(ctx context.Context, conn *Connection, opts ConsumeOptions, h H
 // process handles one delivery: decode envelope, run handler under a drain
 // context, and Ack/Nack per the result. Panics are recovered and dropped.
 func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.Delivery, timeout time.Duration) {
+	timer := prometheus.NewTimer(messageProcessingSeconds.WithLabelValues(opts.Queue))
+	defer timer.ObserveDuration()
 	defer func() {
 		if r := recover(); r != nil {
 			opts.Logger.Error("consumer: panic in handler",
 				"queue", opts.Queue, "panic", r, "stack", string(debug.Stack()))
+			messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 			_ = msg.Nack(false, false) // poison: drop, never requeue (anti crash-loop)
 		}
 	}()
@@ -172,6 +176,7 @@ func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.De
 	var env Envelope
 	if err := json.Unmarshal(msg.Body, &env); err != nil {
 		opts.Logger.Error("consumer: invalid envelope, dropping", "queue", opts.Queue, "err", err)
+		messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 		_ = msg.Nack(false, false)
 		return
 	}
@@ -184,13 +189,16 @@ func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.De
 	if err := h(ctx, env); err != nil {
 		if errors.Is(err, ErrDrop) {
 			opts.Logger.Error("consumer: handler dropped message", "queue", opts.Queue, "type", env.Type, "err", err)
+			messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 			_ = msg.Nack(false, false)
 			return
 		}
 		opts.Logger.Error("consumer: handler failed, requeuing", "queue", opts.Queue, "type", env.Type, "err", err)
+		messagesProcessed.WithLabelValues(opts.Queue, resultRequeue).Inc()
 		_ = msg.Nack(false, true)
 		return
 	}
+	messagesProcessed.WithLabelValues(opts.Queue, resultAck).Inc()
 	_ = msg.Ack(false)
 }
 

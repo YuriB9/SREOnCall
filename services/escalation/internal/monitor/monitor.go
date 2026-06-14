@@ -56,6 +56,7 @@ func (m *Monitor) step(ctx context.Context) {
 		m.logger.Error("monitor: list expired states", "err", err)
 		return
 	}
+	backlog.Set(float64(len(states)))
 	for _, st := range states {
 		if err := m.escalate.AdvanceOrExhaust(ctx, st); err != nil {
 			m.logger.Error("monitor: advance or exhaust failed",

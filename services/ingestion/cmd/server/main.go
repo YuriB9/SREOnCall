@@ -38,6 +38,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+	pkgdb.RegisterPoolMetrics("ingestion", pool)
 
 	if err := pkgmigrate.Run(cfg.DBDSN, "file://./migrations", "ingestion_schema_migrations"); err != nil {
 		logger.Error("migrations failed", "err", err)

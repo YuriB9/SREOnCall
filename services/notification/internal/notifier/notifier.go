@@ -134,7 +134,10 @@ func (n *Notifier) NotifyExhausted(ctx context.Context, ev events.EscalationExha
 	if sendErr != nil {
 		status = domain.StatusFailed
 		errDetail = sendErr.Error()
+		notificationsSent.WithLabelValues(domain.ChannelMattermost, resultFailed).Inc()
 		n.logger.Error("mattermost exhausted notification failed", "incident_id", ev.IncidentID, "err", sendErr)
+	} else {
+		notificationsSent.WithLabelValues(domain.ChannelMattermost, resultDelivered).Inc()
 	}
 	n.appendLog(ctx, &domain.NotificationLog{
 		IncidentID:  ev.IncidentID,
@@ -256,6 +259,7 @@ func (n *Notifier) dispatchChannel(
 		allowed = true
 	}
 	if !allowed {
+		notificationsRateLimited.WithLabelValues(channel).Inc()
 		n.logger.Warn("rate limited",
 			"user_id", userID, "tenant_id", tenantID, "channel", channel)
 		n.appendLog(ctx, &domain.NotificationLog{
@@ -275,8 +279,10 @@ func (n *Notifier) dispatchChannel(
 	if sendErr != nil {
 		status = domain.StatusFailed
 		errDetail = sendErr.Error()
+		notificationsSent.WithLabelValues(channel, resultFailed).Inc()
 		n.logger.Error("notification send failed", "user_id", userID, "channel", channel, "err", sendErr)
 	} else {
+		notificationsSent.WithLabelValues(channel, resultDelivered).Inc()
 		n.logger.Info("notification sent", "user_id", userID, "channel", channel, "incident_id", incidentID)
 	}
 	n.appendLog(ctx, &domain.NotificationLog{

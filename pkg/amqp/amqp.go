@@ -123,8 +123,19 @@ func NewPublisher(conn *Connection) *Publisher {
 	return &Publisher{conn: conn}
 }
 
-// Publish sends body to the given exchange with routingKey.
+// Publish sends body to the given exchange with routingKey. The final outcome
+// (ok after any retries, or error) is recorded in amqp_publish_total{exchange}.
 func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) error {
+	err := p.publishWithRetry(ctx, exchange, routingKey, body)
+	if err != nil {
+		publishTotal.WithLabelValues(exchange, "error").Inc()
+		return err
+	}
+	publishTotal.WithLabelValues(exchange, "ok").Inc()
+	return nil
+}
+
+func (p *Publisher) publishWithRetry(ctx context.Context, exchange, routingKey string, body []byte) error {
 	var lastErr error
 	for attempt := range 3 {
 		if err := p.publish(ctx, exchange, routingKey, body); err != nil {
