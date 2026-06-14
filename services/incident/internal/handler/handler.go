@@ -23,7 +23,7 @@ import (
 type Store interface {
 	GetIncident(ctx context.Context, tenantID, id string) (*incdomain.Incident, error)
 	ListIncidents(ctx context.Context, tenantID string, f store.ListFilter) ([]*incdomain.Incident, string, error)
-	UpdateStatus(ctx context.Context, tenantID, id string, status incdomain.Status, authorID string) (*incdomain.Incident, error)
+	TransitionStatus(ctx context.Context, tenantID, id string, status, expectedStatus incdomain.Status, authorID string, hist *incdomain.HistoryEntry) (*incdomain.Incident, error)
 	AttachAlert(ctx context.Context, ia *incdomain.IncidentAlert) error
 	ListIncidentAlerts(ctx context.Context, tenantID, incidentID string) ([]*incdomain.IncidentAlert, error)
 	MergeLabels(ctx context.Context, incidentID string, labels map[string]string) error
@@ -177,21 +177,27 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	caller := callerID(r)
-	updated, err := h.store.UpdateStatus(r.Context(), tenantID, id, newStatus, caller)
-	if err != nil {
-		h.logger.Error("update status", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	_ = h.store.AppendHistory(r.Context(), &incdomain.HistoryEntry{
+	// The status change and its history entry are applied atomically, guarded
+	// on the status we just read: a concurrent transition that already moved
+	// the incident is reported as a conflict instead of overwriting it (D2/D3).
+	hist := &incdomain.HistoryEntry{
 		IncidentID: id,
 		TenantID:   tenantID,
 		Kind:       incdomain.HistoryStatusChange,
 		Author:     caller,
 		OldValue:   string(inc.Status),
 		NewValue:   string(newStatus),
-	})
+	}
+	updated, err := h.store.TransitionStatus(r.Context(), tenantID, id, newStatus, inc.Status, caller, hist)
+	if errors.Is(err, store.ErrConflict) {
+		http.Error(w, "incident status changed concurrently", http.StatusConflict)
+		return
+	}
+	if err != nil {
+		h.logger.Error("update status", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 
 	ev := events.IncidentChanged{
 		IncidentID: updated.ID,
@@ -289,13 +295,15 @@ func (h *Handler) PutLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.store.AppendHistory(r.Context(), &incdomain.HistoryEntry{
+	if err := h.store.AppendHistory(r.Context(), &incdomain.HistoryEntry{
 		IncidentID: id,
 		TenantID:   tenantID,
 		Kind:       incdomain.HistoryLabelChange,
 		Author:     callerID(r),
 		NewValue:   store.LabelsToJSON(labels),
-	})
+	}); err != nil {
+		h.logger.Warn("append label-change history failed", "incident_id", id, "err", err)
+	}
 
 	all, err := h.store.GetLabels(r.Context(), id)
 	if err != nil {
@@ -345,13 +353,15 @@ func (h *Handler) AddComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.store.AppendHistory(r.Context(), &incdomain.HistoryEntry{
+	if err := h.store.AppendHistory(r.Context(), &incdomain.HistoryEntry{
 		IncidentID: id,
 		TenantID:   tenantID,
 		Kind:       incdomain.HistoryCommentAdded,
 		Author:     c.AuthorID,
 		NewValue:   c.ID,
-	})
+	}); err != nil {
+		h.logger.Warn("append comment history failed", "incident_id", id, "err", err)
+	}
 
 	writeJSON(w, http.StatusCreated, c)
 }

@@ -21,9 +21,8 @@ import (
 type Store interface {
 	GetGroupingRule(ctx context.Context, tenantID, source string) (*incdomain.GroupingRule, error)
 	FindOpenIncidentByGroupKey(ctx context.Context, tenantID, groupKey string) (string, error)
-	CreateIncident(ctx context.Context, inc *incdomain.Incident) error
+	CreateIncidentTx(ctx context.Context, inc *incdomain.Incident, labels map[string]string, hist *incdomain.HistoryEntry, ia *incdomain.IncidentAlert) error
 	AttachAlert(ctx context.Context, ia *incdomain.IncidentAlert) error
-	MergeLabels(ctx context.Context, incidentID string, labels map[string]string) error
 	AppendHistory(ctx context.Context, e *incdomain.HistoryEntry) error
 	ResolveAlert(ctx context.Context, tenantID, fingerprint string) (string, error)
 	MaybeResolve(ctx context.Context, tenantID, incidentID string) (bool, error)
@@ -100,6 +99,15 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 		return fmt.Errorf("find incident: %w", err)
 	}
 
+	ia := &incdomain.IncidentAlert{
+		IncidentID:  incidentID,
+		TenantID:    tenantID,
+		Fingerprint: alert.Fingerprint,
+		Source:      string(alert.Source),
+		GroupKey:    groupKey,
+		Status:      domain.AlertStatusFiring,
+	}
+
 	var created bool
 	if incidentID == "" {
 		inc := &incdomain.Incident{
@@ -111,34 +119,20 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 			Severity:   string(alert.Severity),
 			Status:     incdomain.StatusOpen,
 		}
-		if err := c.store.CreateIncident(ctx, inc); err != nil {
+		hist := &incdomain.HistoryEntry{
+			TenantID: tenantID,
+			Kind:     incdomain.HistoryStatusChange,
+			OldValue: "",
+			NewValue: string(incdomain.StatusOpen),
+		}
+		// Create incident, initial labels, open-history and the first alert
+		// atomically: a requeued delivery never sees a half-built incident (D2).
+		if err := c.store.CreateIncidentTx(ctx, inc, alert.Labels, hist, ia); err != nil {
 			return fmt.Errorf("create incident: %w", err)
 		}
 		incidentID = inc.ID
 		created = true
-
-		if err := c.store.MergeLabels(ctx, incidentID, alert.Labels); err != nil {
-			return fmt.Errorf("merge labels: %w", err)
-		}
-
-		_ = c.store.AppendHistory(ctx, &incdomain.HistoryEntry{
-			IncidentID: incidentID,
-			TenantID:   tenantID,
-			Kind:       incdomain.HistoryStatusChange,
-			OldValue:   "",
-			NewValue:   string(incdomain.StatusOpen),
-		})
-	}
-
-	ia := &incdomain.IncidentAlert{
-		IncidentID:  incidentID,
-		TenantID:    tenantID,
-		Fingerprint: alert.Fingerprint,
-		Source:      string(alert.Source),
-		GroupKey:    groupKey,
-		Status:      domain.AlertStatusFiring,
-	}
-	if err := c.store.AttachAlert(ctx, ia); err != nil {
+	} else if err := c.store.AttachAlert(ctx, ia); err != nil {
 		return fmt.Errorf("attach alert: %w", err)
 	}
 
@@ -177,13 +171,15 @@ func (c *Consumer) handleResolved(ctx context.Context, alert domain.Alert) error
 	}
 
 	if closed {
-		_ = c.store.AppendHistory(ctx, &incdomain.HistoryEntry{
+		if err := c.store.AppendHistory(ctx, &incdomain.HistoryEntry{
 			IncidentID: incidentID,
 			TenantID:   alert.TenantID,
 			Kind:       incdomain.HistoryStatusChange,
 			OldValue:   string(incdomain.StatusOpen),
 			NewValue:   string(incdomain.StatusResolved),
-		})
+		}); err != nil {
+			c.logger.Warn("append resolved history failed", "incident_id", incidentID, "err", err)
+		}
 
 		inc, _ := c.store.GetIncident(ctx, alert.TenantID, incidentID)
 		if inc != nil {

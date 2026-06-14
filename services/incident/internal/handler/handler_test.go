@@ -27,6 +27,9 @@ type memHandler struct {
 	comments  map[string][]*incdomain.Comment
 	history   map[string][]*incdomain.HistoryEntry
 	rules     map[string]*incdomain.GroupingRule
+	// forceConflict makes TransitionStatus report a lost CAS race, simulating a
+	// concurrent status change between the read and the guarded write (D3).
+	forceConflict bool
 }
 
 func newMemHandler() *memHandler {
@@ -78,12 +81,18 @@ func (m *memHandler) ListIncidents(_ context.Context, tenantID string, f store.L
 	return out, "", nil
 }
 
-func (m *memHandler) UpdateStatus(_ context.Context, tenantID, id string, status incdomain.Status, _ string) (*incdomain.Incident, error) {
-	if inc, ok := m.incidents[id]; ok && inc.TenantID == tenantID {
-		inc.Status = status
-		return inc, nil
+func (m *memHandler) TransitionStatus(_ context.Context, tenantID, id string, status, expectedStatus incdomain.Status, _ string, _ *incdomain.HistoryEntry) (*incdomain.Incident, error) {
+	inc, ok := m.incidents[id]
+	if !ok || inc.TenantID != tenantID {
+		return nil, store.ErrNotFound
 	}
-	return nil, store.ErrNotFound
+	// Mirror the guarded CAS: a status that no longer matches expectedStatus is
+	// a conflict (D3).
+	if m.forceConflict || inc.Status != expectedStatus {
+		return nil, store.ErrConflict
+	}
+	inc.Status = status
+	return inc, nil
 }
 
 func (m *memHandler) AttachAlert(_ context.Context, _ *incdomain.IncidentAlert) error { return nil }
@@ -331,6 +340,27 @@ func TestHandler_PatchStatus_ValidTransition(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandler_PatchStatus_Conflict(t *testing.T) {
+	t.Parallel()
+	st := newMemHandler()
+	st.forceConflict = true // status changed concurrently between read and write
+	h := handler.New(st, &noopPub{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	srv := httptest.NewServer(newTestRouter(h))
+	defer srv.Close()
+
+	body := bytes.NewBufferString(`{"status":"acknowledged"}`)
+	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/incidents/v1/tenant-a/incidents/inc1", body)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("expected 409 on concurrent status change, got %d", resp.StatusCode)
 	}
 }
 

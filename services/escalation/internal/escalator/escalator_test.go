@@ -23,6 +23,9 @@ type memStore struct {
 	states   map[string]*domain.EscalationState
 	configs  map[string]*domain.TenantConfig
 	history  []*domain.EscalationHistory
+	// forceAdvanceConflict makes AdvanceEscalationState report a lost CAS race,
+	// simulating another worker that already claimed the expired state (D1).
+	forceAdvanceConflict bool
 }
 
 func newMemStore() *memStore {
@@ -78,6 +81,20 @@ func (m *memStore) UpdateEscalationState(_ context.Context, st *domain.Escalatio
 		return store.ErrNotFound
 	}
 	m.states[st.IncidentID] = st
+	return nil
+}
+
+func (m *memStore) AdvanceEscalationState(_ context.Context, st *domain.EscalationState, _ int, _ string, hist *domain.EscalationHistory) error {
+	if m.forceAdvanceConflict {
+		return store.ErrConflict
+	}
+	if _, ok := m.states[st.IncidentID]; !ok {
+		return store.ErrNotFound
+	}
+	m.states[st.IncidentID] = st
+	if hist != nil {
+		m.history = append(m.history, hist)
+	}
 	return nil
 }
 
@@ -275,6 +292,38 @@ func TestAdvanceOrExhaust_ExhaustsWhenNoMoreTiers(t *testing.T) {
 	}
 	if pub.exhausted[0].IncidentID != "inc-3" {
 		t.Errorf("unexpected exhausted incident: %s", pub.exhausted[0].IncidentID)
+	}
+}
+
+func TestAdvanceOrExhaust_SkipsOnConflict(t *testing.T) {
+	t.Parallel()
+	st := newMemStore()
+	pub := &mockPublisher{}
+	sched := &mockSchedClient{result: &schedclient.OncallResult{UserID: "bob", Username: "bob"}}
+
+	setupPolicy(st, "pol-1", "tenant-a",
+		&domain.PolicyTier{ID: "t1", PolicyID: "pol-1", TierNumber: 1, TimeoutSeconds: 60},
+		&domain.PolicyTier{ID: "t2", PolicyID: "pol-1", TierNumber: 2, TimeoutSeconds: 120, NotifyScheduleID: "sched-2"},
+	)
+	state := &domain.EscalationState{
+		ID: "s1", IncidentID: "inc-cas", TenantID: "tenant-a", TenantSlug: "team-a",
+		PolicyID: "pol-1", CurrentTier: 1, Status: "active",
+		EscalateAt: time.Now().Add(-1 * time.Second),
+	}
+	st.states["inc-cas"] = state
+	// Another worker already claimed the expired state: the guarded UPDATE
+	// matches no row, so the store reports ErrConflict (D1).
+	st.forceAdvanceConflict = true
+
+	esc := makeEscalator(st, sched, pub)
+	if err := esc.AdvanceOrExhaust(context.Background(), state); err != nil {
+		t.Fatalf("conflict must be swallowed, got %v", err)
+	}
+	if len(pub.triggered) != 0 {
+		t.Errorf("expected no triggered event on conflict, got %d", len(pub.triggered))
+	}
+	if len(pub.exhausted) != 0 {
+		t.Errorf("expected no exhausted event on conflict, got %d", len(pub.exhausted))
 	}
 }
 

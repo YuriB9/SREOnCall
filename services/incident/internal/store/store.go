@@ -1,7 +1,11 @@
+// Package store is the incident persistence layer: incidents, alerts, labels,
+// comments, history and grouping rules over Postgres (pgx). It owns the
+// transactional, optimistically-concurrent state transitions of an incident.
 package store
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sre-oncall/incident/internal/domain"
 	"github.com/sre-oncall/pkg/errs"
@@ -18,6 +23,19 @@ import (
 // network boundary (e.g. a client returning errs.ErrNotFound on a 404).
 var ErrNotFound = errs.ErrNotFound
 
+// ErrConflict aliases the shared sentinel so callers can detect a lost
+// optimistic-concurrency race (guarded status UPDATE matched no row) with
+// errors.Is and map it to HTTP 409.
+var ErrConflict = errs.ErrConflict
+
+// dbConn is the subset of pgx methods shared by *pgxpool.Pool and pgx.Tx,
+// letting query helpers run either on the pool (autocommit) or inside withTx.
+type dbConn interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type Store struct {
 	db *pgxpool.Pool
 }
@@ -26,15 +44,59 @@ func New(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
 
+// withTx runs fn inside a transaction, committing on success and rolling back
+// on error or panic. Used to make multi-statement writes atomic (D2).
+func (s *Store) withTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 // ── Incidents ────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateIncident(ctx context.Context, inc *domain.Incident) error {
-	return s.db.QueryRow(ctx,
+	return createIncident(ctx, s.db, inc)
+}
+
+func createIncident(ctx context.Context, q dbConn, inc *domain.Incident) error {
+	return q.QueryRow(ctx,
 		`INSERT INTO incident.incidents (tenant_id, tenant_slug, title, severity, status)
 		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, created_at, updated_at`,
 		inc.TenantID, inc.TenantSlug, inc.Title, inc.Severity, string(inc.Status),
 	).Scan(&inc.ID, &inc.CreatedAt, &inc.UpdatedAt)
+}
+
+// CreateIncidentTx atomically creates an incident, merges its initial labels,
+// records the open-status history entry, and attaches the first alert in a
+// single transaction (D2). Either the whole set is applied or nothing, so a
+// requeued delivery never observes a half-built incident.
+func (s *Store) CreateIncidentTx(ctx context.Context, inc *domain.Incident, labels map[string]string, hist *domain.HistoryEntry, ia *domain.IncidentAlert) error {
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		if err := createIncident(ctx, tx, inc); err != nil {
+			return fmt.Errorf("create incident: %w", err)
+		}
+		ia.IncidentID = inc.ID
+		if err := mergeLabels(ctx, tx, inc.ID, labels); err != nil {
+			return fmt.Errorf("merge labels: %w", err)
+		}
+		if hist != nil {
+			hist.IncidentID = inc.ID
+			if err := appendHistory(ctx, tx, hist); err != nil {
+				return fmt.Errorf("append history: %w", err)
+			}
+		}
+		if err := attachAlert(ctx, tx, ia); err != nil {
+			return fmt.Errorf("attach alert: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *Store) GetIncident(ctx context.Context, tenantID, id string) (*domain.Incident, error) {
@@ -93,10 +155,14 @@ func (s *Store) ListIncidents(ctx context.Context, tenantID string, f ListFilter
 		args = append(args, *f.ToTime)
 		idx++
 	}
-	if f.Cursor != "" {
-		conds = append(conds, fmt.Sprintf("i.created_at < (SELECT created_at FROM incident.incidents WHERE id = $%d)", idx))
-		args = append(args, f.Cursor)
-		idx++
+	// Keyset pagination on the composite key (created_at, id): a strict
+	// row-value comparison so equal timestamps never skip or duplicate rows on
+	// page boundaries (D5). The cursor carries both components, so no lookup of
+	// the cursor row is needed; an unparseable cursor is treated as "first page".
+	if t, cid, ok := decodeCursor(f.Cursor); ok {
+		conds = append(conds, fmt.Sprintf("(i.created_at, i.id) < ($%d, $%d)", idx, idx+1))
+		args = append(args, t, cid)
+		idx += 2
 	}
 
 	// Label filter via EXISTS subquery
@@ -115,7 +181,7 @@ func (s *Store) ListIncidents(ctx context.Context, tenantID string, f ListFilter
 		        i.acknowledged_at, i.acknowledged_by, i.resolved_at, i.created_at, i.updated_at
 		 FROM incident.incidents i
 		 %s
-		 ORDER BY i.created_at DESC
+		 ORDER BY i.created_at DESC, i.id DESC
 		 LIMIT $%d`,
 		where, idx,
 	)
@@ -141,7 +207,8 @@ func (s *Store) ListIncidents(ctx context.Context, tenantID string, f ListFilter
 
 	var nextCursor string
 	if len(result) > f.PageSize {
-		nextCursor = result[f.PageSize-1].ID
+		last := result[f.PageSize-1]
+		nextCursor = encodeCursor(last.CreatedAt, last.ID)
 		result = result[:f.PageSize]
 	}
 
@@ -154,40 +221,61 @@ func (s *Store) ListIncidents(ctx context.Context, tenantID string, f ListFilter
 	return result, nextCursor, nil
 }
 
-// UpdateStatus updates the incident status and related fields; returns the updated incident.
-func (s *Store) UpdateStatus(ctx context.Context, tenantID, id string, status domain.Status, authorID string) (*domain.Incident, error) {
+// TransitionStatus applies an incident status change guarded by the expected
+// previous status (optimistic CAS, D3) and records the history entry in the
+// same transaction (D2). The UPDATE includes `AND status=$expected`, so a
+// concurrent change that already moved the incident leaves zero rows affected
+// and is reported as ErrConflict instead of silently overwriting the state
+// machine. Returns the updated incident with labels loaded.
+func (s *Store) TransitionStatus(ctx context.Context, tenantID, id string, status, expectedStatus domain.Status, authorID string, hist *domain.HistoryEntry) (*domain.Incident, error) {
 	now := time.Now().UTC()
 	var q string
 	var args []any
+	const returning = `RETURNING id, tenant_id, tenant_slug, title, severity, status,
+	               acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at`
 	switch status {
 	case domain.StatusAcknowledged:
 		q = `UPDATE incident.incidents
 		     SET status=$1, acknowledged_at=$2, acknowledged_by=$3, updated_at=$4
-		     WHERE id=$5 AND tenant_id=$6
-		     RETURNING id, tenant_id, tenant_slug, title, severity, status,
-		               acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at`
-		args = []any{string(status), now, authorID, now, id, tenantID}
+		     WHERE id=$5 AND tenant_id=$6 AND status=$7
+		     ` + returning
+		args = []any{string(status), now, authorID, now, id, tenantID, string(expectedStatus)}
 	case domain.StatusResolved:
 		q = `UPDATE incident.incidents
 		     SET status=$1, resolved_at=$2, updated_at=$3
-		     WHERE id=$4 AND tenant_id=$5
-		     RETURNING id, tenant_id, tenant_slug, title, severity, status,
-		               acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at`
-		args = []any{string(status), now, now, id, tenantID}
+		     WHERE id=$4 AND tenant_id=$5 AND status=$6
+		     ` + returning
+		args = []any{string(status), now, now, id, tenantID, string(expectedStatus)}
 	default: // open (reopen)
 		q = `UPDATE incident.incidents
 		     SET status=$1, resolved_at=NULL, acknowledged_at=NULL, acknowledged_by=NULL, updated_at=$2
-		     WHERE id=$3 AND tenant_id=$4
-		     RETURNING id, tenant_id, tenant_slug, title, severity, status,
-		               acknowledged_at, acknowledged_by, resolved_at, created_at, updated_at`
-		args = []any{string(status), now, id, tenantID}
+		     WHERE id=$3 AND tenant_id=$4 AND status=$5
+		     ` + returning
+		args = []any{string(status), now, id, tenantID, string(expectedStatus)}
 	}
 
-	inc, err := s.scanIncident(s.db.QueryRow(ctx, q, args...))
+	var inc *domain.Incident
+	err := s.withTx(ctx, func(tx pgx.Tx) error {
+		var scanErr error
+		inc, scanErr = s.scanIncident(tx.QueryRow(ctx, q, args...))
+		if errors.Is(scanErr, ErrNotFound) {
+			// The incident exists (the handler read it first) but its status no
+			// longer matches expectedStatus → a concurrent transition won (D3).
+			return ErrConflict
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		if err := loadLabels(ctx, tx, inc); err != nil {
+			return err
+		}
+		if hist != nil {
+			hist.IncidentID = id
+			return appendHistory(ctx, tx, hist)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	if err := s.loadLabels(ctx, inc); err != nil {
 		return nil, err
 	}
 	return inc, nil
@@ -231,7 +319,11 @@ func (s *Store) scanIncident(row pgx.Row) (*domain.Incident, error) {
 }
 
 func (s *Store) loadLabels(ctx context.Context, inc *domain.Incident) error {
-	rows, err := s.db.Query(ctx,
+	return loadLabels(ctx, s.db, inc)
+}
+
+func loadLabels(ctx context.Context, q dbConn, inc *domain.Incident) error {
+	rows, err := q.Query(ctx,
 		`SELECT key, value FROM incident.incident_labels WHERE incident_id = $1`, inc.ID)
 	if err != nil {
 		return err
@@ -268,7 +360,11 @@ func (s *Store) FindOpenIncidentByGroupKey(ctx context.Context, tenantID, groupK
 }
 
 func (s *Store) AttachAlert(ctx context.Context, ia *domain.IncidentAlert) error {
-	return s.db.QueryRow(ctx,
+	return attachAlert(ctx, s.db, ia)
+}
+
+func attachAlert(ctx context.Context, q dbConn, ia *domain.IncidentAlert) error {
+	return q.QueryRow(ctx,
 		`INSERT INTO incident.incident_alerts (incident_id, tenant_id, fingerprint, source, group_key, status)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT DO NOTHING
@@ -339,11 +435,15 @@ func (s *Store) ResolveAlert(ctx context.Context, tenantID, fingerprint string) 
 
 // MergeLabels upserts the provided key-value pairs into incident_labels.
 func (s *Store) MergeLabels(ctx context.Context, incidentID string, labels map[string]string) error {
+	return mergeLabels(ctx, s.db, incidentID, labels)
+}
+
+func mergeLabels(ctx context.Context, q dbConn, incidentID string, labels map[string]string) error {
 	if len(labels) == 0 {
 		return nil
 	}
 	for k, v := range labels {
-		_, err := s.db.Exec(ctx,
+		_, err := q.Exec(ctx,
 			`INSERT INTO incident.incident_labels (incident_id, key, value)
 			 VALUES ($1, $2, $3)
 			 ON CONFLICT (incident_id, key) DO UPDATE SET value = EXCLUDED.value`,
@@ -426,7 +526,11 @@ func (s *Store) DeleteComment(ctx context.Context, tenantID, commentID string) e
 // ── History ──────────────────────────────────────────────────────────────────
 
 func (s *Store) AppendHistory(ctx context.Context, e *domain.HistoryEntry) error {
-	return s.db.QueryRow(ctx,
+	return appendHistory(ctx, s.db, e)
+}
+
+func appendHistory(ctx context.Context, q dbConn, e *domain.HistoryEntry) error {
+	return q.QueryRow(ctx,
 		`INSERT INTO incident.incident_history (incident_id, tenant_id, kind, author, old_value, new_value)
 		 VALUES ($1, $2, $3, $4, $5, $6)
 		 RETURNING id, occurred_at`,
@@ -542,4 +646,33 @@ func (s *Store) ListGroupingRules(ctx context.Context, tenantID string) ([]*doma
 func LabelsToJSON(labels map[string]string) string {
 	b, _ := json.Marshal(labels)
 	return string(b)
+}
+
+// encodeCursor packs the keyset components (created_at, id) into an opaque
+// base64 token "<RFC3339Nano>|<id>" for the next page (D5).
+func encodeCursor(createdAt time.Time, id string) string {
+	raw := createdAt.UTC().Format(time.RFC3339Nano) + "|" + id
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+// decodeCursor reverses encodeCursor. ok is false for an empty or unparseable
+// cursor, in which case the caller treats the request as the first page rather
+// than erroring (D5).
+func decodeCursor(cursor string) (createdAt time.Time, id string, ok bool) {
+	if cursor == "" {
+		return time.Time{}, "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	ts, cid, found := strings.Cut(string(raw), "|")
+	if !found || cid == "" {
+		return time.Time{}, "", false
+	}
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return time.Time{}, "", false
+	}
+	return t, cid, true
 }

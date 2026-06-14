@@ -143,6 +143,17 @@ func (m *memStore) UpdateEscalationState(_ context.Context, st *domain.Escalatio
 	return nil
 }
 
+func (m *memStore) AdvanceEscalationState(_ context.Context, st *domain.EscalationState, _ int, _ string, hist *domain.EscalationHistory) error {
+	if _, ok := m.states[st.IncidentID]; !ok {
+		return store.ErrNotFound
+	}
+	m.states[st.IncidentID] = st
+	if hist != nil {
+		m.history = append(m.history, hist)
+	}
+	return nil
+}
+
 func (m *memStore) ListExpiredStates(_ context.Context, _ int) ([]*domain.EscalationState, error) {
 	return nil, nil
 }

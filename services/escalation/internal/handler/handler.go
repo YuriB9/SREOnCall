@@ -251,7 +251,12 @@ func (h *Handler) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, _ := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
+	st, err := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
+	if err != nil {
+		h.logger.Error("read escalation state after attach", "incident_id", incidentID, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	writeJSON(w, http.StatusCreated, st)
 }
 
@@ -314,7 +319,12 @@ func (h *Handler) ManualEscalate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, _ := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
+	st, err := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
+	if err != nil {
+		h.logger.Error("read escalation state after manual escalate", "incident_id", incidentID, "err", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	writeJSON(w, http.StatusOK, st)
 }
 
