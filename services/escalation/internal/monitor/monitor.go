@@ -28,7 +28,7 @@ func New(store Store, esc *escalator.Escalator, interval time.Duration, logger *
 
 // Run polls for expired escalation states on every interval tick until ctx is cancelled.
 func (m *Monitor) Run(ctx context.Context) {
-	m.logger.Info("escalation monitor started", "interval", m.interval)
+	m.logger.InfoContext(ctx, "escalation monitor started", "interval", m.interval)
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
@@ -47,19 +47,19 @@ func (m *Monitor) step(ctx context.Context) {
 	// goroutine (E2). The tick is skipped; the next tick retries.
 	defer func() {
 		if r := recover(); r != nil {
-			m.logger.Error("monitor: panic in step", "panic", r, "stack", string(debug.Stack()))
+			m.logger.ErrorContext(ctx, "monitor: panic in step", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
 
 	states, err := m.store.ListExpiredStates(ctx, 50)
 	if err != nil {
-		m.logger.Error("monitor: list expired states", "err", err)
+		m.logger.ErrorContext(ctx, "monitor: list expired states", "err", err)
 		return
 	}
 	backlog.Set(float64(len(states)))
 	for _, st := range states {
 		if err := m.escalate.AdvanceOrExhaust(ctx, st); err != nil {
-			m.logger.Error("monitor: advance or exhaust failed",
+			m.logger.ErrorContext(ctx, "monitor: advance or exhaust failed",
 				"incident_id", st.IncidentID, "err", err)
 		}
 	}

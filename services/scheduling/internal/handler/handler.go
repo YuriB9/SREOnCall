@@ -87,7 +87,7 @@ func scheduleID(r *http.Request) string { return chi.URLParam(r, "scheduleId") }
 func (h *Handler) ListSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := h.store.ListSchedules(r.Context(), tenantSlug(r))
 	if err != nil {
-		h.logger.Error("list schedules", "err", err)
+		h.logger.ErrorContext(r.Context(), "list schedules", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -154,7 +154,7 @@ func (h *Handler) CreateSchedule(w http.ResponseWriter, r *http.Request) {
 		StartDate:     startDate,
 	}
 	if err := h.store.CreateSchedule(r.Context(), sched); err != nil {
-		h.logger.Error("create schedule", "err", err)
+		h.logger.ErrorContext(r.Context(), "create schedule", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -168,7 +168,7 @@ func (h *Handler) GetSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error("get schedule", "err", err)
+		h.logger.ErrorContext(r.Context(), "get schedule", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -226,7 +226,7 @@ func (h *Handler) PatchSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.UpdateSchedule(r.Context(), sched); err != nil {
-		h.logger.Error("update schedule", "err", err)
+		h.logger.ErrorContext(r.Context(), "update schedule", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -367,7 +367,7 @@ func (h *Handler) CreateOverride(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		h.logger.Error("create override", "err", err)
+		h.logger.ErrorContext(r.Context(), "create override", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -446,7 +446,7 @@ func (h *Handler) ListShifts(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := h.store.ListTenants(r.Context())
 	if err != nil {
-		h.logger.Error("list tenants", "err", err)
+		h.logger.ErrorContext(r.Context(), "list tenants", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -474,7 +474,7 @@ func (h *Handler) CreateTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "slug already exists")
 		return
 	} else if err != nil {
-		h.logger.Error("create tenant", "err", err)
+		h.logger.ErrorContext(r.Context(), "create tenant", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -541,7 +541,7 @@ func (h *Handler) GetMembers(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	members, err := h.members.GetMembers(r.Context(), slug)
 	if err != nil {
-		h.logger.Error("get members", "slug", slug, "err", err)
+		h.logger.ErrorContext(r.Context(), "get members", "slug", slug, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -589,14 +589,14 @@ func (h *Handler) CreateWebhookToken(w http.ResponseWriter, r *http.Request) {
 
 	tok, err := h.store.CreateWebhookToken(r.Context(), slug, body.Source, hash)
 	if err != nil {
-		h.logger.Error("create webhook token", "err", err)
+		h.logger.ErrorContext(r.Context(), "create webhook token", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	if h.tokenIndex != nil {
 		if err := h.tokenIndex.Set(r.Context(), hash, slug); err != nil {
-			h.logger.Warn("token index set failed", "err", err)
+			h.logger.WarnContext(r.Context(), "token index set failed", "err", err)
 		}
 	}
 
@@ -625,7 +625,7 @@ func (h *Handler) DeleteWebhookToken(w http.ResponseWriter, r *http.Request) {
 
 	if h.tokenIndex != nil {
 		if err := h.tokenIndex.Del(r.Context(), hash); err != nil {
-			h.logger.Warn("token index del failed", "err", err)
+			h.logger.WarnContext(r.Context(), "token index del failed", "err", err)
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)

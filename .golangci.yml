@@ -24,7 +24,13 @@ linters:
     - misspell        # опечатки в комментариях/строках
     - errname         # sentinel-ошибки с префиксом Err (N4 области 9)
     - paralleltest    # отсутствие t.Parallel() (T5 области 8)
+    - sloglint        # единый ключ ошибки в slog (E5 области 4)
   settings:
+    sloglint:
+      # E5: ключ ошибки в slog — только "err"; "error" фрагментирует группировку
+      # в агрегаторе логов. JSON-тела ответов {"error": ...} это не затрагивает.
+      forbidden-keys:
+        - error
     revive:
       rules:
         - name: package-comments   # N1: package-комментарии

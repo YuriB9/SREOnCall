@@ -71,7 +71,7 @@ func tenant(r *http.Request) string { return chi.URLParam(r, "tenant") }
 func (h *Handler) ListPolicies(w http.ResponseWriter, r *http.Request) {
 	policies, err := h.store.ListPolicies(r.Context(), tenant(r))
 	if err != nil {
-		h.logger.Error("list policies", "err", err)
+		h.logger.ErrorContext(r.Context(), "list policies", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -119,7 +119,7 @@ func (h *Handler) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if err := h.store.CreatePolicy(r.Context(), p); err != nil {
-		h.logger.Error("create policy", "err", err)
+		h.logger.ErrorContext(r.Context(), "create policy", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -233,7 +233,7 @@ func (h *Handler) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 	var info escalator.IncidentInfo
 	if h.incident != nil {
 		if inc, err := h.incident.GetIncident(r.Context(), tenant(r), incidentID); err != nil {
-			h.logger.Warn("attach policy: incident fetch failed, proceeding with empty incident fields",
+			h.logger.WarnContext(r.Context(), "attach policy: incident fetch failed, proceeding with empty incident fields",
 				"incident_id", incidentID, "err", err)
 		} else {
 			info = escalator.IncidentInfo{Title: inc.Title, Severity: inc.Severity, Status: inc.Status}
@@ -246,14 +246,14 @@ func (h *Handler) AttachPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error("attach policy", "err", err)
+		h.logger.ErrorContext(r.Context(), "attach policy", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	st, err := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
 	if err != nil {
-		h.logger.Error("read escalation state after attach", "incident_id", incidentID, "err", err)
+		h.logger.ErrorContext(r.Context(), "read escalation state after attach", "incident_id", incidentID, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -282,7 +282,7 @@ func (h *Handler) GetEscalationStates(w http.ResponseWriter, r *http.Request) {
 	ids := parseIncidentIDs(r.URL.Query().Get("incident_ids"))
 	states, err := h.store.ListEscalationStatesByIncidents(r.Context(), tenant(r), ids)
 	if err != nil {
-		h.logger.Error("list escalation states", "err", err)
+		h.logger.ErrorContext(r.Context(), "list escalation states", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -321,7 +321,7 @@ func (h *Handler) ManualEscalate(w http.ResponseWriter, r *http.Request) {
 
 	st, err := h.store.GetEscalationStateByIncident(r.Context(), tenant(r), incidentID)
 	if err != nil {
-		h.logger.Error("read escalation state after manual escalate", "incident_id", incidentID, "err", err)
+		h.logger.ErrorContext(r.Context(), "read escalation state after manual escalate", "incident_id", incidentID, "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}

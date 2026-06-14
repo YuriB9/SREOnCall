@@ -63,7 +63,7 @@ func (h *Handler) PutContact(w http.ResponseWriter, r *http.Request) {
 		EnabledChannels:    body.EnabledChannels,
 	}
 	if err := h.store.UpsertContact(r.Context(), c); err != nil {
-		h.logger.Error("upsert contact", "err", err)
+		h.logger.ErrorContext(r.Context(), "upsert contact", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -121,17 +121,17 @@ func (h *Handler) SyncContacts(w http.ResponseWriter, r *http.Request) {
 				EnabledChannels: []string{"email"},
 			}
 			if err := h.store.UpsertContact(r.Context(), c); err != nil {
-				h.logger.Error("sync: create contact", "tenant", tenant, "err", err)
+				h.logger.ErrorContext(r.Context(), "sync: create contact", "tenant", tenant, "err", err)
 				continue
 			}
 			synced++
 		case err != nil:
-			h.logger.Error("sync: get contact", "tenant", tenant, "err", err)
+			h.logger.ErrorContext(r.Context(), "sync: get contact", "tenant", tenant, "err", err)
 		case existing.Email != claims.Email:
 			// Keycloak is the source of truth for email; keep other fields.
 			existing.Email = claims.Email
 			if err := h.store.UpsertContact(r.Context(), existing); err != nil {
-				h.logger.Error("sync: update contact", "tenant", tenant, "err", err)
+				h.logger.ErrorContext(r.Context(), "sync: update contact", "tenant", tenant, "err", err)
 				continue
 			}
 			synced++

@@ -93,7 +93,7 @@ func (c *Connection) dialWithRetry(ctx context.Context, attempts int) error {
 			return nil
 		}
 		delay := time.Duration(1<<i) * time.Second
-		slog.Warn("amqp reconnect failed, retrying", "attempt", i+1, "delay", delay, "err", err)
+		slog.WarnContext(ctx, "amqp reconnect failed, retrying", "attempt", i+1, "delay", delay, "err", err)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -141,7 +141,7 @@ func (p *Publisher) publishWithRetry(ctx context.Context, exchange, routingKey s
 		if err := p.publish(ctx, exchange, routingKey, body); err != nil {
 			lastErr = err
 			delay := time.Duration(1<<attempt) * time.Second
-			slog.Warn("publish failed, retrying", "exchange", exchange, "attempt", attempt+1, "err", err)
+			slog.WarnContext(ctx, "publish failed, retrying", "exchange", exchange, "attempt", attempt+1, "err", err)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
