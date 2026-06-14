@@ -14,6 +14,10 @@ type Config struct {
 	RedisPass string
 	AMQPURL   string
 	DedupTTL  time.Duration
+	// Per-client-IP input rate limit on the webhook endpoints (S6). Burst
+	// absorbs Alertmanager group bursts; RPS bounds sustained flood.
+	RateLimitRPS   int
+	RateLimitBurst int
 }
 
 func Load() Config {
@@ -28,6 +32,8 @@ func Load() Config {
 		// repeated firing notifications of the same alert do not create bus/raw_alerts
 		// noise. A resolved alert clears the dedup key, so a real re-fire after resolve
 		// passes immediately and the long TTL does not delay new incidents.
-		DedupTTL: pkgconfig.DurationSeconds("DEDUP_TTL_SECONDS", 4*time.Hour),
+		DedupTTL:       pkgconfig.DurationSeconds("DEDUP_TTL_SECONDS", 4*time.Hour),
+		RateLimitRPS:   pkgconfig.Int("RATE_LIMIT_RPS", 50),
+		RateLimitBurst: pkgconfig.Int("RATE_LIMIT_BURST", 100),
 	}
 }

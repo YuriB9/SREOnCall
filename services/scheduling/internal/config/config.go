@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	HTTPPort          string
+	LogLevel          string
 	DBDSN             string
 	AdminKey          string
 	KeycloakJWKSURL   string
@@ -27,6 +28,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		HTTPPort:             pkgconfig.String("HTTP_PORT", "8082"),
+		LogLevel:             pkgconfig.String("LOG_LEVEL", "info"),
 		DBDSN:                os.Getenv("DB_DSN"),
 		AdminKey:             os.Getenv("ADMIN_API_KEY"),
 		KeycloakJWKSURL:      os.Getenv("KEYCLOAK_JWKS_URL"),

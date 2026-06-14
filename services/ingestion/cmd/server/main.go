@@ -2,20 +2,16 @@ package main
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgdb "github.com/sre-oncall/pkg/db"
+	pkghttpserver "github.com/sre-oncall/pkg/httpserver"
 	pkglogger "github.com/sre-oncall/pkg/logger"
-	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 	pkgredis "github.com/sre-oncall/pkg/redis"
 
@@ -83,39 +79,23 @@ func main() {
 	h := handler.New(dd, pub, rawStore, logger)
 
 	// ── Router ───────────────────────────────────────────────────────────────
-	r := chi.NewRouter()
-	r.Use(chiMiddleware.Recoverer)
-	r.Use(chiMiddleware.RequestID)
-	r.Use(pkgmetrics.Middleware("ingestion"))
-
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Handle("/metrics", pkgmetrics.Handler())
+	r := pkghttpserver.NewRouter("ingestion",
+		pkghttpserver.Check{Name: "postgres", Probe: pool.Ping},
+		pkghttpserver.Check{Name: "redis", Probe: func(ctx context.Context) error { return rdb.Ping(ctx).Err() }},
+		pkghttpserver.BoolCheck("amqp", amqpConn.Ready),
+	)
 
 	r.Group(func(r chi.Router) {
+		// Per-IP input rate limit on the webhook endpoints: blunts request floods
+		// and X-Webhook-Token guessing without affecting normal Alertmanager bursts (S6).
+		r.Use(pkghttpserver.RateLimit(float64(cfg.RateLimitRPS), cfg.RateLimitBurst))
 		r.Use(tenantmw.Tenant(tokenStore))
 		r.Post("/api/ingest/v1/webhook/alertmanager", h.HandleAlertmanager)
 		r.Post("/api/ingest/v1/webhook/grafana", h.HandleGrafana)
 	})
 
-	// ── HTTP server ──────────────────────────────────────────────────────────
-	srv := &http.Server{
-		Addr:         ":" + cfg.HTTPPort,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	go func() {
-		<-ctx.Done()
-		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutCtx)
-	}()
-
-	logger.Info("ingestion service started", "port", cfg.HTTPPort)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	// ── HTTP server: serve until ctx is cancelled, then drain ──────────────────
+	if err := pkghttpserver.Run(ctx, ":"+cfg.HTTPPort, r, logger); err != nil {
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}

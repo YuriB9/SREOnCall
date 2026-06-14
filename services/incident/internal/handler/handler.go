@@ -172,7 +172,15 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 
 	newStatus := incdomain.Status(body.Status)
 	if err := statemachine.Validate(inc.Status, newStatus); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		// Return a stable domain message, never the raw error: keeps technical
+		// detail out of the HTTP response even if a wrapped error reaches here (E6).
+		var invalid statemachine.ErrInvalidTransition
+		if errors.As(err, &invalid) {
+			http.Error(w, "invalid status transition", http.StatusUnprocessableEntity)
+			return
+		}
+		h.logger.Error("validate status transition", "incident_id", id, "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 

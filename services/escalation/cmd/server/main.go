@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,8 +13,8 @@ import (
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgauth "github.com/sre-oncall/pkg/auth"
 	pkgdb "github.com/sre-oncall/pkg/db"
+	pkghttpserver "github.com/sre-oncall/pkg/httpserver"
 	pkglogger "github.com/sre-oncall/pkg/logger"
-	pkgmetrics "github.com/sre-oncall/pkg/metrics"
 	pkgmigrate "github.com/sre-oncall/pkg/migrate"
 
 	"github.com/sre-oncall/escalation/internal/config"
@@ -54,10 +53,10 @@ func main() {
 	schedClient := schedclient.New(cfg.SchedulingURL, cfg.SchedulingAdminKey)
 	incClient := incclient.New(cfg.IncidentURL, cfg.IncidentAdminKey)
 
-	// RabbitMQ is optional — skipped if RABBITMQ_URL is unset.
+	// RabbitMQ is optional — skipped if RABBITMQ_URL is unset. Decide the
+	// publisher before building the escalator so esc is constructed once (F9).
 	var pub escalator.Publisher = publisher.NewNoop()
 	var amqpConn *pkgamqp.Connection
-	var cons *consumer.Consumer
 
 	if cfg.AMQPURL != "" {
 		amqpConn, err = pkgamqp.NewConnection(cfg.AMQPURL)
@@ -78,13 +77,17 @@ func main() {
 		amqpCh.Close()
 
 		pub = publisher.New(pkgamqp.NewPublisher(amqpConn))
-		cons = consumer.New(escalator.New(st, schedClient, pub, logger), logger)
 	} else {
 		logger.Warn("RABBITMQ_URL not set — running without AMQP consumer")
 	}
 
+	// Single escalator shared by consumer, HTTP handler and monitor (F9).
 	esc := escalator.New(st, schedClient, pub, logger)
 
+	var cons *consumer.Consumer
+	if amqpConn != nil {
+		cons = consumer.New(esc, logger)
+	}
 	mon := monitor.New(st, esc, 30*time.Second, logger)
 
 	// ── Background goroutines (joined on shutdown) ─────────────────────────────
@@ -95,39 +98,28 @@ func main() {
 	g.Go(func() error { mon.Run(gctx); return nil })
 
 	// ── Auth middleware ───────────────────────────────────────────────────────
-	var authMW func(http.Handler) http.Handler
-	switch {
-	case cfg.KeycloakJWKSURL != "":
-		if cfg.KeycloakIssuer == "" || cfg.KeycloakAudience == "" {
-			logger.Warn("JWT iss/aud не проверяется: задайте KEYCLOAK_ISSUER и KEYCLOAK_AUDIENCE для полной валидации")
-		}
-		mw, err := pkgauth.Middleware(pkgauth.Options{
-			JWKSURL:           cfg.KeycloakJWKSURL,
-			AdminKey:          cfg.AdminKey,
-			Issuer:            cfg.KeycloakIssuer,
-			Audience:          cfg.KeycloakAudience,
-			AllowInsecureJWKS: cfg.AllowInsecureJWKS,
-		})
-		if err != nil {
-			logger.Error("auth middleware init failed", "err", err)
-			os.Exit(1)
-		}
-		authMW = mw
-	case cfg.AuthDisabled:
-		logger.Warn("AUTH_DISABLED=true: запросы проходят без аутентификации — только для локальной разработки")
-		authMW = func(next http.Handler) http.Handler { return next }
-	default:
-		logger.Error("KEYCLOAK_JWKS_URL не задан; для отключения аутентификации в локалке установите AUTH_DISABLED=true")
+	authMW, err := pkgauth.MiddlewareOrPassthrough(pkgauth.Options{
+		JWKSURL:           cfg.KeycloakJWKSURL,
+		AdminKey:          cfg.AdminKey,
+		Issuer:            cfg.KeycloakIssuer,
+		Audience:          cfg.KeycloakAudience,
+		AllowInsecureJWKS: cfg.AllowInsecureJWKS,
+	}, cfg.AuthDisabled, logger)
+	if err != nil {
+		logger.Error("auth middleware init failed", "err", err)
 		os.Exit(1)
 	}
 
 	// ── HTTP router ───────────────────────────────────────────────────────────
 	h := handler.New(st, esc, incClient, logger)
-	r := chi.NewRouter()
-	r.Use(pkgmetrics.Middleware("escalation"))
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	r.Handle("/metrics", pkgmetrics.Handler())
+	checks := []pkghttpserver.Check{{Name: "postgres", Probe: pool.Ping}}
+	if amqpConn != nil {
+		checks = append(checks,
+			pkghttpserver.BoolCheck("amqp", amqpConn.Ready),
+			pkghttpserver.BoolCheck("consumer", cons.Healthy),
+		)
+	}
+	r := pkghttpserver.NewRouter("escalation", checks...)
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMW)
@@ -154,19 +146,11 @@ func main() {
 		})
 	})
 
-	srv := &http.Server{Addr: ":" + cfg.HTTPPort, Handler: r, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		logger.Info("escalation service started", "port", cfg.HTTPPort)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "err", err)
-			os.Exit(1)
-		}
-	}()
-
-	<-ctx.Done()
-	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutCtx)
+	// ── HTTP server: serve until ctx is cancelled, then drain ──────────────────
+	if err := pkghttpserver.Run(ctx, ":"+cfg.HTTPPort, r, logger); err != nil {
+		logger.Error("server error", "err", err)
+		os.Exit(1)
+	}
 	_ = g.Wait() // drain consumer + monitor in-flight work (C2)
 	if amqpConn != nil {
 		_ = amqpConn.Close() // explicit close (C2)
