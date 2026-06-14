@@ -22,6 +22,7 @@ type Store interface {
 	CreateEscalationState(ctx context.Context, st *domain.EscalationState) error
 	GetEscalationStateByIncident(ctx context.Context, tenantID, incidentID string) (*domain.EscalationState, error)
 	UpdateEscalationState(ctx context.Context, st *domain.EscalationState) error
+	AdvanceEscalationState(ctx context.Context, st *domain.EscalationState, expectedTier int, expectedStatus string, hist *domain.EscalationHistory) error
 	ListExpiredStates(ctx context.Context, limit int) ([]*domain.EscalationState, error)
 	AppendHistory(ctx context.Context, e *domain.EscalationHistory) error
 }
@@ -98,22 +99,32 @@ func (e *Escalator) AssignPolicy(ctx context.Context, tenantID, tenantSlug, inci
 // AdvanceOrExhaust transitions an active escalation state to the next tier,
 // or marks it exhausted if no more tiers remain.
 func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationState) error {
+	// Capture the tier/status we expect the row to still have so the write is a
+	// guarded CAS: it claims the work for exactly one worker even if several
+	// (replicas, overlapping ticks) read the same expired state (D1).
+	expectedTier := st.CurrentTier
 	nextTierNum := st.CurrentTier + 1
 	nextTier, err := e.store.GetTierByNumber(ctx, st.PolicyID, nextTierNum)
 	if errors.Is(err, store.ErrNotFound) {
 		// No more tiers — exhaust
 		st.Status = "exhausted"
 		st.EscalateAt = time.Now()
-		if err := e.store.UpdateEscalationState(ctx, st); err != nil {
-			return fmt.Errorf("advance: set exhausted: %w", err)
-		}
-		tier := st.CurrentTier
-		_ = e.store.AppendHistory(ctx, &domain.EscalationHistory{
+		tier := expectedTier
+		hist := &domain.EscalationHistory{
 			IncidentID: st.IncidentID,
 			TenantID:   st.TenantID,
 			EventType:  "exhausted",
 			Tier:       &tier,
-		})
+		}
+		if err := e.store.AdvanceEscalationState(ctx, st, expectedTier, "active", hist); err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				// Another worker already advanced this state — skip without
+				// publishing a duplicate escalation.exhausted (D1).
+				e.logger.Debug("advance: state already claimed, skipping", "incident_id", st.IncidentID)
+				return nil
+			}
+			return fmt.Errorf("advance: set exhausted: %w", err)
+		}
 		if err := e.pub.PublishExhausted(ctx, events.EscalationExhausted{
 			IncidentID: st.IncidentID,
 			TenantID:   st.TenantID,
@@ -130,7 +141,13 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 
 	st.CurrentTier = nextTier.TierNumber
 	st.EscalateAt = time.Now().Add(time.Duration(nextTier.TimeoutSeconds) * time.Second)
-	if err := e.store.UpdateEscalationState(ctx, st); err != nil {
+	// The "triggered" history entry is written by triggerTier, so no entry is
+	// bundled into the CAS here — the guarded UPDATE only claims the row (D1).
+	if err := e.store.AdvanceEscalationState(ctx, st, expectedTier, "active", nil); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			e.logger.Debug("advance: state already claimed, skipping", "incident_id", st.IncidentID)
+			return nil
+		}
 		return fmt.Errorf("advance: update state: %w", err)
 	}
 
@@ -158,12 +175,14 @@ func (e *Escalator) Stop(ctx context.Context, tenantID, incidentID, reason strin
 		return fmt.Errorf("stop: update state: %w", err)
 	}
 	tier := st.CurrentTier
-	_ = e.store.AppendHistory(ctx, &domain.EscalationHistory{
+	if err := e.store.AppendHistory(ctx, &domain.EscalationHistory{
 		IncidentID: incidentID,
 		TenantID:   tenantID,
 		EventType:  reason,
 		Tier:       &tier,
-	})
+	}); err != nil {
+		e.logger.Warn("append stop history failed", "incident_id", incidentID, "err", err)
+	}
 	return nil
 }
 
@@ -216,14 +235,16 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 	}
 
 	t := tier.TierNumber
-	_ = e.store.AppendHistory(ctx, &domain.EscalationHistory{
+	if err := e.store.AppendHistory(ctx, &domain.EscalationHistory{
 		IncidentID:     st.IncidentID,
 		TenantID:       st.TenantID,
 		EventType:      "triggered",
 		Tier:           &t,
 		OncallUserID:   userID,
 		OncallUsername: username,
-	})
+	}); err != nil {
+		e.logger.Warn("append triggered history failed", "incident_id", st.IncidentID, "err", err)
+	}
 
 	if err := e.pub.PublishTriggered(ctx, events.EscalationTriggered{
 		IncidentID:       st.IncidentID,

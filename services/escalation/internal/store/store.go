@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sre-oncall/escalation/internal/domain"
 	"github.com/sre-oncall/pkg/errs"
@@ -15,12 +16,38 @@ import (
 // network boundary (e.g. a client returning errs.ErrNotFound on a 404).
 var ErrNotFound = errs.ErrNotFound
 
+// ErrConflict aliases the shared sentinel so callers can detect a lost
+// optimistic-concurrency race (guarded UPDATE matched no row) with errors.Is.
+var ErrConflict = errs.ErrConflict
+
+// dbConn is the subset of pgx methods shared by *pgxpool.Pool and pgx.Tx,
+// letting query helpers run either on the pool (autocommit) or inside withTx.
+type dbConn interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type Store struct {
 	db *pgxpool.Pool
 }
 
 func New(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
+}
+
+// withTx runs fn inside a transaction, committing on success and rolling back
+// on error or panic. Used to make multi-statement state transitions atomic (D2).
+func (s *Store) withTx(ctx context.Context, fn func(tx pgx.Tx) error) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ── Policies ──────────────────────────────────────────────────────────────────
@@ -262,6 +289,33 @@ func (s *Store) UpdateEscalationState(ctx context.Context, st *domain.Escalation
 	return nil
 }
 
+// AdvanceEscalationState atomically claims and writes an escalation state
+// transition (D1): the UPDATE is guarded on the expected previous tier and
+// status, so only one concurrent worker wins. RowsAffected()==0 means another
+// worker already advanced the row and the caller must not publish — returned as
+// ErrConflict. When hist is non-nil it is appended in the same transaction (D2),
+// so the state change and its audit entry apply together or not at all.
+func (s *Store) AdvanceEscalationState(ctx context.Context, st *domain.EscalationState, expectedTier int, expectedStatus string, hist *domain.EscalationHistory) error {
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE escalation.incident_escalation_states
+			 SET current_tier=$1, status=$2, escalate_at=$3, updated_at=now()
+			 WHERE id=$4 AND current_tier=$5 AND status=$6`,
+			st.CurrentTier, st.Status, st.EscalateAt, st.ID, expectedTier, expectedStatus,
+		)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrConflict
+		}
+		if hist != nil {
+			return appendHistory(ctx, tx, hist)
+		}
+		return nil
+	})
+}
+
 // ListExpiredStates returns active states where escalate_at <= now(), locked for update.
 func (s *Store) ListExpiredStates(ctx context.Context, limit int) ([]*domain.EscalationState, error) {
 	rows, err := s.db.Query(ctx,
@@ -294,7 +348,13 @@ func (s *Store) ListExpiredStates(ctx context.Context, limit int) ([]*domain.Esc
 // ── History ───────────────────────────────────────────────────────────────────
 
 func (s *Store) AppendHistory(ctx context.Context, e *domain.EscalationHistory) error {
-	return s.db.QueryRow(ctx,
+	return appendHistory(ctx, s.db, e)
+}
+
+// appendHistory inserts an escalation history entry on the given connection,
+// which may be the pool or a transaction (so it can join AdvanceEscalationState).
+func appendHistory(ctx context.Context, q dbConn, e *domain.EscalationHistory) error {
+	return q.QueryRow(ctx,
 		`INSERT INTO escalation.escalation_history
 		    (incident_id, tenant_id, event_type, tier, oncall_user_id, oncall_username)
 		 VALUES ($1,$2,$3,$4,$5,$6)

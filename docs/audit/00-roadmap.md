@@ -30,7 +30,7 @@
 | CH05 | extract-bus-contracts | 2 | CH01 | ✅ |
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ✅ |
 | CH07 | consumer-resilience | 3 | CH05 | ✅ |
-| CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ☐ |
+| CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ✅ |
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ☐ |
 | CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ☐ |
 | CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **7 / 19** done.
+Прогресс: **8 / 19** done.
 
 ---
 
@@ -177,11 +177,45 @@
 > - **Wire-формат `Envelope`/payload НЕ менялся** — не BREAKING, сообщения в очередях читаются как прежде.
 > - Проверки: `go build/vet/test` всех 6 модулей, **`-race`** (чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` (`golang.org/x/sync`→direct). Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
-### CH08 · `db-atomicity-and-state-transitions` 🔴
+### CH08 · `db-atomicity-and-state-transitions` 🔴 — ✅ done (2026-06-14)
 **Корень:** нет оптимистичной конкуренции на переходах состояний.
 **Закрывает:** D1 (`FOR UPDATE SKIP LOCKED` в транзакции **или** CAS-`UPDATE ... WHERE status/tier=expected` + проверка `RowsAffected`), D3 (тот же CAS для `PatchStatus`), D2 (транзакционный `withTx`-хелпер для составных записей incident/escalation), D5 (keyset-пагинация `(created_at, id)`), E4 (логировать ошибку `AppendHistory` вместо `_ =`), R2 (проверять err/nil в post-write чтениях хендлера).
 **Содержимое:** store-слой incident/escalation + хендлеры.
 **Зависит от:** CH01 (а на проде — лучше после CH07, чтобы requeue работал чисто). Изолировать.
+
+> **Реализовано.** Чейндж `db-atomicity-and-state-transitions` (MODIFIED-дельты `incident-management`,
+> `escalation-policies`). См. ADR-0016.
+> Что важно для следующих сессий:
+> - **Паттерн guarded-CAS + `withTx`** — новая норма для переходов состояний. В каждом store
+>   добавлены приватный `withTx(ctx, fn func(pgx.Tx) error)` и узкий интерфейс `dbConn`
+>   (`Exec`/`Query`/`QueryRow`), которому удовлетворяют и `*pgxpool.Pool`, и `pgx.Tx` — для
+>   переиспользования SQL из пула и из транзакции. **Новые переходы стройте так же.**
+> - **escalation (D1/D2):** `Store.AdvanceEscalationState(ctx, st, expectedTier, expectedStatus, hist)` —
+>   guarded-UPDATE (`WHERE id AND current_tier=$exp AND status=$exp`) + опц. `AppendHistory` в
+>   одной транзакции; `RowsAffected()==0` → `store.ErrConflict` (= `errs.ErrConflict`).
+>   `AdvanceOrExhaust` захватывает строку CAS **до** публикации и тихо пропускает при конфликте
+>   (нет двойной эскалации). `UpdateEscalationState` оставлен для `Stop` (не CAS — идемпотентен).
+> - **incident (D2/D3):** `Store.TransitionStatus(ctx, …, status, expectedStatus, authorID, hist)` —
+>   guarded-UPDATE статуса + история в транзакции; конфликт → **HTTP 409** в `PatchStatus`.
+>   `Store.CreateIncidentTx(ctx, inc, labels, hist, ia)` — атомарное создание инцидента из алерта
+>   (consumer). **Сигнатуры интерфейсов handler/consumer изменены** (`UpdateStatus`→`TransitionStatus`,
+>   `CreateIncident`+`MergeLabels`→`CreateIncidentTx`) — учесть в **CH10** (переразводка main/handler)
+>   и **CH15** (ingestion-throughput, если затронет incident store).
+> - **D5 keyset-пагинация:** `ListIncidents` сортирует `created_at DESC, id DESC`, курсор —
+>   **непрозрачный base64-токен `(created_at|id)`** (`encodeCursor`/`decodeCursor`), не «голый» id.
+>   Нераспознанный курсор → первая страница. **Не BREAKING** для API; курсоры «в полёте» между
+>   деплоями перезапросят список.
+> - **E4:** `AppendHistory`-ошибки больше не глушатся: вошедшие в транзакции откатывают её;
+>   остальные (Stop, triggerTier, авто-резолв, PutLabels, AddComment) — warn-лог. **R2:** post-write
+>   чтения в escalation-хендлере (AttachPolicy/ManualEscalate) → 500 при ошибке вместо `null`.
+> - **Схема БД и wire-формат событий НЕ менялись**, миграций нет. Публикация `incident.*`/`escalation.*`
+>   теперь после commit транзакции.
+> - **Backlog для CH17 (T4):** интеграционные регресс-тесты на Postgres (CAS-конфликт перехода,
+>   `CreateIncidentTx`-атомарность, стабильность keyset при равных `created_at`) — здесь покрыто
+>   юнитами (escalator-skip, handler-409, cursor round-trip), live-Postgres-тесты отложены.
+> - Проверки: `go build/vet/test` (incident, escalation), **`-race`** (чисто), `golangci-lint
+>   --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` без диффа.
+>   Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17).
 
 ### CH09 · `store-layering-and-pool-config` 🟡
 **Корень:** слой персистентности в `cmd/` + ненастроенный пул.

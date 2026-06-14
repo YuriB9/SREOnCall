@@ -56,22 +56,21 @@ func (m *memStore) FindOpenIncidentByGroupKey(_ context.Context, tenantID, group
 	return "", nil
 }
 
-func (m *memStore) CreateIncident(_ context.Context, inc *incdomain.Incident) error {
-	inc.ID = "inc-" + inc.TenantID + "-" + time.Now().Format("150405.000")
+func (m *memStore) CreateIncidentTx(ctx context.Context, inc *incdomain.Incident, _ map[string]string, _ *incdomain.HistoryEntry, ia *incdomain.IncidentAlert) error {
+	inc.ID = "inc-" + inc.TenantID + "-" + time.Now().Format("150405.000000000")
 	inc.CreatedAt = time.Now()
 	inc.UpdatedAt = time.Now()
 	m.incidents[inc.ID] = inc
-	return nil
+	ia.IncidentID = inc.ID
+	return m.AttachAlert(ctx, ia)
 }
 
 func (m *memStore) AttachAlert(_ context.Context, ia *incdomain.IncidentAlert) error {
-	ia.ID = "ia-" + time.Now().Format("150405.000")
+	ia.ID = "ia-" + time.Now().Format("150405.000000000")
 	ia.AttachedAt = time.Now()
 	m.alerts = append(m.alerts, ia)
 	return nil
 }
-
-func (m *memStore) MergeLabels(_ context.Context, _ string, _ map[string]string) error { return nil }
 
 func (m *memStore) AppendHistory(_ context.Context, _ *incdomain.HistoryEntry) error { return nil }
 
