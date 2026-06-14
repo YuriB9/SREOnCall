@@ -31,7 +31,7 @@
 | CH06 | extract-shared-config-and-httpclient | 2 | CH01 | ✅ |
 | CH07 | consumer-resilience | 3 | CH05 | ✅ |
 | CH08 | db-atomicity-and-state-transitions | 3 | CH01 | ✅ |
-| CH09 | store-layering-and-pool-config | 3 | CH01 | ☐ |
+| CH09 | store-layering-and-pool-config | 3 | CH01 | ✅ |
 | CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ☐ |
 | CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ☐ |
 | CH12 | log-correlation | 5 | CH10 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **8 / 19** done.
+Прогресс: **9 / 19** done.
 
 ---
 
@@ -217,10 +217,25 @@
 >   --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` без диффа.
 >   Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17).
 
-### CH09 · `store-layering-and-pool-config` 🟡
+### CH09 · `store-layering-and-pool-config` 🟡 — ✅ done (2026-06-14)
 **Корень:** слой персистентности в `cmd/` + ненастроенный пул.
 **Закрывает:** F2 (вынести `pgStore`/redis-адаптеры/SQL из `ingestion/cmd/server/main.go` в `internal/`), D4 (конфиг пула `MaxConns/MinConns/MaxConnLifetime/MaxConnIdleTime` в `pkg/db`).
 **Зависит от:** CH01.
+
+> **Реализовано.** Чейндж `store-layering-and-pool-config` (no-delta infra/layering, архив с `--skip-specs`).
+> Что важно для следующих сессий:
+> - **D4 — пул сконфигурирован в `pkg/db`:** `NewPool(ctx, dsn)` **сохранил сигнатуру** (5 `main.go` не тронуты),
+>   после `ParseConfig` применяются дефолты `MaxConns=10/MinConns=2/MaxConnLifetime=30m/MaxConnIdleTime=5m`.
+>   Override через env `DB_POOL_MAX_CONNS`/`DB_POOL_MIN_CONNS`/`DB_POOL_MAX_CONN_LIFETIME_SECONDS`/`DB_POOL_MAX_CONN_IDLE_TIME_SECONDS`
+>   (читаются внутри `pkg/db` через `pkg/config`). Экспортируемые `PoolConfig`/`DefaultPoolConfig()` — юнит-тестируемы без БД.
+>   **Для CH11** (`O2`): `pgxpool.Stat()` теперь имеет осмысленные границы пула для экспорта метрик.
+> - **F2 — ingestion выровнен с остальными сервисами:** `pgStore`→`internal/store` (`store.New(pool)`),
+>   `redisCacheAdapter`→`internal/dedup.RedisCache` (`dedup.NewRedisCache(rdb)`), `redisTokenStore`→новый
+>   `internal/tokenstore` (`tokenstore.New(rdb)`). `package main` теперь только парсит конфиг и собирает зависимости.
+>   Интерфейсы-потребители (`handler.Store`, `dedup.Cache`, `middleware.TokenStore`) не менялись.
+> - **Поведение, API, события RabbitMQ, схема БД — без изменений; не BREAKING.** Дельты спека нет.
+> - Проверки: `go build` всех 6 модулей, `go vet/test` (pkg, ingestion), `golangci-lint --new-from-merge-base main`
+>   (0 new в pkg и ingestion), `go mod tidy` без диффа — чисто.
 
 ---
 
