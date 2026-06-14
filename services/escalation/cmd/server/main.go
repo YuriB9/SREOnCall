@@ -30,7 +30,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	logger := pkglogger.New(cfg.LogLevel)
+	logger := pkglogger.New(cfg.LogLevel, "escalation")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -10,10 +10,13 @@ import (
 )
 
 // New creates a JSON slog.Logger at the given level ("debug", "info", "warn", "error").
-// Записи, сделанные через *Context-методы (InfoContext/ErrorContext/...),
-// автоматически обогащаются корреляционными полями из контекста (request_id).
-// The returned logger is also set as the global default.
-func New(level string) *slog.Logger {
+// service добавляется полем "service" в каждую запись (в т.ч. в логи через
+// глобальный default, например миграции) — чтобы при общем выводе нескольких
+// сервисов было видно источник записи. Записи, сделанные через *Context-методы
+// (InfoContext/ErrorContext/...), дополнительно обогащаются корреляционными
+// полями из контекста (request_id). The returned logger is also set as the
+// global default.
+func New(level, service string) *slog.Logger {
 	var l slog.Level
 	switch strings.ToLower(level) {
 	case "debug":
@@ -27,6 +30,9 @@ func New(level string) *slog.Logger {
 	}
 	base := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l})
 	logger := slog.New(&contextHandler{base})
+	if service != "" {
+		logger = logger.With("service", service)
+	}
 	slog.SetDefault(logger)
 	return logger
 }
