@@ -94,7 +94,7 @@ func Consume(ctx context.Context, conn *Connection, opts ConsumeOptions, h Handl
 			return nil //nolint:nilerr // graceful shutdown: ctx cancelled, the consumeOnce error is shutdown noise
 		}
 		if err != nil {
-			opts.Logger.Error("consumer stopped, reconnecting", "queue", opts.Queue, "backoff", backoff, "err", err)
+			opts.Logger.ErrorContext(ctx, "consumer stopped, reconnecting", "queue", opts.Queue, "backoff", backoff, "err", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -135,7 +135,7 @@ func consumeOnce(ctx context.Context, conn *Connection, opts ConsumeOptions, h H
 	opts.Probe.set(true)
 	defer opts.Probe.set(false)
 
-	opts.Logger.Info("consumer started", "queue", opts.Queue, "concurrency", opts.concurrency())
+	opts.Logger.InfoContext(ctx, "consumer started", "queue", opts.Queue, "concurrency", opts.concurrency())
 
 	g := new(errgroup.Group)
 	g.SetLimit(opts.concurrency())
@@ -166,7 +166,7 @@ func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.De
 	defer timer.ObserveDuration()
 	defer func() {
 		if r := recover(); r != nil {
-			opts.Logger.Error("consumer: panic in handler",
+			opts.Logger.ErrorContext(runCtx, "consumer: panic in handler",
 				"queue", opts.Queue, "panic", r, "stack", string(debug.Stack()))
 			messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 			_ = msg.Nack(false, false) // poison: drop, never requeue (anti crash-loop)
@@ -175,7 +175,7 @@ func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.De
 
 	var env Envelope
 	if err := json.Unmarshal(msg.Body, &env); err != nil {
-		opts.Logger.Error("consumer: invalid envelope, dropping", "queue", opts.Queue, "err", err)
+		opts.Logger.ErrorContext(runCtx, "consumer: invalid envelope, dropping", "queue", opts.Queue, "err", err)
 		messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 		_ = msg.Nack(false, false)
 		return
@@ -188,12 +188,12 @@ func process(runCtx context.Context, opts ConsumeOptions, h Handler, msg amqp.De
 
 	if err := h(ctx, env); err != nil {
 		if errors.Is(err, ErrDrop) {
-			opts.Logger.Error("consumer: handler dropped message", "queue", opts.Queue, "type", env.Type, "err", err)
+			opts.Logger.ErrorContext(ctx, "consumer: handler dropped message", "queue", opts.Queue, "type", env.Type, "err", err)
 			messagesProcessed.WithLabelValues(opts.Queue, resultDrop).Inc()
 			_ = msg.Nack(false, false)
 			return
 		}
-		opts.Logger.Error("consumer: handler failed, requeuing", "queue", opts.Queue, "type", env.Type, "err", err)
+		opts.Logger.ErrorContext(ctx, "consumer: handler failed, requeuing", "queue", opts.Queue, "type", env.Type, "err", err)
 		messagesProcessed.WithLabelValues(opts.Queue, resultRequeue).Inc()
 		_ = msg.Nack(false, true)
 		return

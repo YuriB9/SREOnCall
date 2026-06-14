@@ -34,7 +34,7 @@
 | CH09 | store-layering-and-pool-config | 3 | CH01 | ✅ |
 | CH10 | shared-httpserver-and-readiness | 4 | CH07, CH03 | ✅ |
 | CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ✅ (O2,R1; O5 вынесена) |
-| CH12 | log-correlation | 5 | CH10 | ☐ |
+| CH12 | log-correlation | 5 | CH10 | ✅ |
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
 | CH14 | bus-publish-perf | 6 | CH07 | ☐ |
 | CH15 | ingestion-throughput | 6 | CH09, CH11 | ☐ |
@@ -43,7 +43,7 @@
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **11 / 19** done.
+Прогресс: **12 / 19** done.
 
 ---
 
@@ -277,10 +277,39 @@
 > - **API/события RabbitMQ/схема БД — без изменений; не BREAKING.** `go mod tidy`: prometheus → direct в incident/escalation/notification.
 > - Проверки: `go build/vet/test` всех 6 модулей, `-race` (pkg+сервисные пакеты, чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых). Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` — backlog T5 (CH17).
 
-### CH12 · `log-correlation` 🟢
+### CH12 · `log-correlation` 🟢 — ✅ done (2026-06-14)
 **Корень:** логи без корреляции.
 **Закрывает:** O4 (`slog.*Context` + инъекция `request_id`/`trace_id` в записи), E5 (единый ключ `"err"`).
 **Зависит от:** CH10 (request_id middleware). Часть `trace_id` подключится после CH13.
+
+> **Реализовано.** Чейндж `log-correlation` (no-delta infra/observability, архив с `--skip-specs`).
+> Что важно для следующих сессий:
+> - **O4 — context-aware slog-хендлер в `pkg/logger`:** `New(level)` оборачивает JSON-хендлер
+>   в приватный `contextHandler`, который в `Handle(ctx, r)` достаёт `request_id` через
+>   `chiMiddleware.GetReqID(ctx)` и добавляет атрибутом. **request_id попадает в запись только у
+>   `*Context`-вызовов** (не-Context передают `context.Background()`). `WithAttrs`/`WithGroup`
+>   переопределены, чтобы обёртка переживала `logger.With(...)`.
+> - **Для CH13** (`distributed-tracing`): точка инъекции `trace_id`/`span_id` уже размечена
+>   комментарием в `contextHandler.Handle` — добавить `trace.SpanContextFromContext(ctx)`, **call-sites
+>   повторно трогать не нужно** (они уже на `*Context`). Фоновые пути (consumers/notifier/escalator/
+>   monitor/`pkg/amqp`) переведены на `*Context` заранее именно ради trace_id — request_id там не
+>   присутствует (background, не HTTP-scope).
+> - **Перевод call-sites:** все логи HTTP-хендлеров 5 сервисов → `*Context(r.Context(), …)`; фоновые
+>   пути → `*Context(ctx/runCtx, …)`. **Не на `*Context` оставлены** стартовые логи `main.go`,
+>   `pkg/auth.MiddlewareOrPassthrough` (config-time), `pkg/migrate` (startup) и `notifier.incidentLink`
+>   (нет ctx в сигнатуре) — там корреляция бессмысленна. В `pkg/amqp.process` для panic-recover и
+>   невалидного конверта используется `runCtx` (drain-ctx ещё не создан/паника), для handler-веток — `ctx`.
+> - **E5 — закреплено линтером:** ключ ошибки в slog исторически свёлся к `"err"` ещё в CH05–CH11
+>   (0 slog-`"error"` к старту CH12); добавлен `sloglint` с `forbidden-keys: ["error"]` в `.golangci.yml`,
+>   чтобы `"error"`-ключ не вернулся. **JSON-тела ответов `{"error": ...}` — контракт API, sloglint их
+>   не трогает.** Дефолтный `no-mixed-args` тоже включился — учесть в новых slog-вызовах (не мешать
+>   key-value и `slog.Attr` в одном вызове).
+> - **API/события RabbitMQ/схема БД — без изменений; не BREAKING.** В JSON-логах request-scope
+>   добавилось поле `request_id`. Дельты спека нет.
+> - Проверки: `go build/vet/test` всех 6 модулей, **`-race`** (`pkg/logger`+`pkg/amqp`, чисто),
+>   `golangci-lint --new-from-merge-base main` (0 new в pkg и 5 сервисах), `govulncheck` (0 достижимых),
+>   `go mod tidy` без диффа (chi уже был direct в pkg). Предсуществующие `go vet` httpresponse-замечания
+>   в `*/handler_test.go` — backlog T5 (CH17), не трогались.
 
 ### CH13 · `distributed-tracing` 🟡
 **Корень:** нет сквозной трассировки.

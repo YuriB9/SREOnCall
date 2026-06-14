@@ -155,7 +155,7 @@ func (c *Consumer) handleFiring(ctx context.Context, alert domain.Alert, tenantI
 				Severity:   inc.Severity,
 			}
 			if err := c.pub.PublishCreated(ctx, ev); err != nil {
-				c.logger.Warn("publish incident.created failed", "incident_id", inc.ID, "err", err)
+				c.logger.WarnContext(ctx, "publish incident.created failed", "incident_id", inc.ID, "err", err)
 			}
 		}
 	}
@@ -186,7 +186,7 @@ func (c *Consumer) handleResolved(ctx context.Context, alert domain.Alert) error
 			OldValue:   string(incdomain.StatusOpen),
 			NewValue:   string(incdomain.StatusResolved),
 		}); err != nil {
-			c.logger.Warn("append resolved history failed", "incident_id", incidentID, "err", err)
+			c.logger.WarnContext(ctx, "append resolved history failed", "incident_id", incidentID, "err", err)
 		}
 
 		inc, _ := c.store.GetIncident(ctx, alert.TenantID, incidentID)
@@ -200,7 +200,7 @@ func (c *Consumer) handleResolved(ctx context.Context, alert domain.Alert) error
 				Severity:   inc.Severity,
 			}
 			if err := c.pub.PublishUpdated(ctx, ev); err != nil {
-				c.logger.Warn("publish incident.updated failed", "incident_id", inc.ID, "err", err)
+				c.logger.WarnContext(ctx, "publish incident.updated failed", "incident_id", inc.ID, "err", err)
 			}
 		}
 	}

@@ -57,19 +57,19 @@ func (h *Handler) processOne(ctx context.Context, alert domain.Alert) error {
 
 	if alert.Status == domain.AlertStatusResolved {
 		if err := h.dedup.Clear(ctx, alert); err != nil {
-			h.logger.Error("dedup clear failed", "fingerprint", alert.Fingerprint, "err", err)
+			h.logger.ErrorContext(ctx, "dedup clear failed", "fingerprint", alert.Fingerprint, "err", err)
 		}
 	} else {
 		var err error
 		isDup, err = h.dedup.IsDuplicate(ctx, alert)
 		if err != nil {
-			h.logger.Error("dedup check failed", "fingerprint", alert.Fingerprint, "err", err)
+			h.logger.ErrorContext(ctx, "dedup check failed", "fingerprint", alert.Fingerprint, "err", err)
 			// Proceed — better to forward than lose the alert.
 		}
 	}
 
 	if err := h.store.SaveRawAlert(ctx, alert, isDup); err != nil {
-		h.logger.Error("save raw alert failed", "fingerprint", alert.Fingerprint, "err", err)
+		h.logger.ErrorContext(ctx, "save raw alert failed", "fingerprint", alert.Fingerprint, "err", err)
 	}
 
 	if isDup {
@@ -79,7 +79,7 @@ func (h *Handler) processOne(ctx context.Context, alert domain.Alert) error {
 	if err := h.pub.PublishAlert(ctx, alert); err != nil {
 		// Roll back dedup key so the sender can retry.
 		_ = h.dedup.Clear(ctx, alert)
-		h.logger.Error("publish failed", "fingerprint", alert.Fingerprint, "err", err)
+		h.logger.ErrorContext(ctx, "publish failed", "fingerprint", alert.Fingerprint, "err", err)
 		return err
 	}
 	return nil

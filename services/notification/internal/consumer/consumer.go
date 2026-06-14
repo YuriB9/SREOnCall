@@ -61,7 +61,7 @@ func (c *Consumer) handle(ctx context.Context, env pkgamqp.Envelope) error {
 		return nil
 
 	default:
-		c.logger.Debug("consumer: ignoring event type", "type", env.Type)
+		c.logger.DebugContext(ctx, "consumer: ignoring event type", "type", env.Type)
 		return nil
 	}
 }

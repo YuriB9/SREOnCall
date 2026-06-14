@@ -82,19 +82,19 @@ func (n *Notifier) incidentLink(tenantSlug, incidentID string) string {
 // NotifyTriggered handles escalation.triggered: notifies the on-call user via enabled channels.
 func (n *Notifier) NotifyTriggered(ctx context.Context, ev events.EscalationTriggered) error {
 	if ev.OncallUserID == "" {
-		n.logger.Warn("triggered event has no oncall_user_id — skipping user notifications",
+		n.logger.WarnContext(ctx, "triggered event has no oncall_user_id — skipping user notifications",
 			"incident_id", ev.IncidentID)
 	} else {
 		contact, err := n.store.GetContact(ctx, ev.TenantID, ev.OncallUserID)
 		if err == store.ErrNotFound {
-			n.logger.Warn("no contact config for on-call user",
+			n.logger.WarnContext(ctx, "no contact config for on-call user",
 				"user_id", ev.OncallUserID, "tenant_id", ev.TenantID)
 		} else if err != nil {
 			return fmt.Errorf("notifier: get contact: %w", err)
 		} else {
 			cfg, err := n.cache.Get(ctx, ev.TenantSlug)
 			if err != nil {
-				n.logger.Error("tenant notification config fetch failed; continuing with fallbacks",
+				n.logger.ErrorContext(ctx, "tenant notification config fetch failed; continuing with fallbacks",
 					"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID, "err", err)
 			}
 			n.dispatchToContact(ctx, ev, contact, cfg)
@@ -107,15 +107,15 @@ func (n *Notifier) NotifyTriggered(ctx context.Context, ev events.EscalationTrig
 func (n *Notifier) NotifyExhausted(ctx context.Context, ev events.EscalationExhausted) error {
 	cfg, err := n.cache.Get(ctx, ev.TenantSlug)
 	if err != nil {
-		n.logger.Warn("tenant cache fetch failed", "tenant_slug", ev.TenantSlug, "err", err)
+		n.logger.WarnContext(ctx, "tenant cache fetch failed", "tenant_slug", ev.TenantSlug, "err", err)
 	}
 	if cfg != nil && !cfg.MattermostEnabled {
-		n.logger.Info("mattermost disabled for tenant — skipping exhausted notification",
+		n.logger.InfoContext(ctx, "mattermost disabled for tenant — skipping exhausted notification",
 			"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID)
 		return nil
 	}
 	if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
-		n.logger.Error("mattermost webhook URL missing or masked — skipping exhausted notification",
+		n.logger.ErrorContext(ctx, "mattermost webhook URL missing or masked — skipping exhausted notification",
 			"tenant_slug", ev.TenantSlug, "incident_id", ev.IncidentID)
 		n.appendLog(ctx, &domain.NotificationLog{
 			IncidentID:  ev.IncidentID,
@@ -135,7 +135,7 @@ func (n *Notifier) NotifyExhausted(ctx context.Context, ev events.EscalationExha
 		status = domain.StatusFailed
 		errDetail = sendErr.Error()
 		notificationsSent.WithLabelValues(domain.ChannelMattermost, resultFailed).Inc()
-		n.logger.Error("mattermost exhausted notification failed", "incident_id", ev.IncidentID, "err", sendErr)
+		n.logger.ErrorContext(ctx, "mattermost exhausted notification failed", "incident_id", ev.IncidentID, "err", sendErr)
 	} else {
 		notificationsSent.WithLabelValues(domain.ChannelMattermost, resultDelivered).Inc()
 	}
@@ -178,7 +178,7 @@ func (n *Notifier) dispatchToContact(
 			// must not silently mute email. Only an explicit email_enabled=false
 			// skips the channel.
 			if cfg != nil && !cfg.EmailEnabled {
-				n.logger.Info("email disabled for tenant — skipping notification",
+				n.logger.InfoContext(ctx, "email disabled for tenant — skipping notification",
 					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
 				continue
 			}
@@ -201,12 +201,12 @@ func (n *Notifier) dispatchToContact(
 			// info-level skip (not a failure). A nil config falls through to the
 			// webhook check below — no webhook still logs failed, as before.
 			if cfg != nil && !cfg.MattermostEnabled {
-				n.logger.Info("mattermost disabled for tenant — skipping notification",
+				n.logger.InfoContext(ctx, "mattermost disabled for tenant — skipping notification",
 					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
 				continue
 			}
 			if cfg == nil || !webhookURLUsable(cfg.MattermostWebhookURL) {
-				n.logger.Error("mattermost webhook URL missing or masked — skipping notification",
+				n.logger.ErrorContext(ctx, "mattermost webhook URL missing or masked — skipping notification",
 					"tenant_slug", ev.TenantSlug, "user_id", ev.OncallUserID)
 				n.appendLog(ctx, &domain.NotificationLog{
 					IncidentID:  ev.IncidentID,
@@ -255,12 +255,12 @@ func (n *Notifier) dispatchChannel(
 ) {
 	allowed, err := n.limiter.Allow(ctx, tenantID, userID, channel)
 	if err != nil {
-		n.logger.Warn("rate limiter error — allowing", "err", err)
+		n.logger.WarnContext(ctx, "rate limiter error — allowing", "err", err)
 		allowed = true
 	}
 	if !allowed {
 		notificationsRateLimited.WithLabelValues(channel).Inc()
-		n.logger.Warn("rate limited",
+		n.logger.WarnContext(ctx, "rate limited",
 			"user_id", userID, "tenant_id", tenantID, "channel", channel)
 		n.appendLog(ctx, &domain.NotificationLog{
 			IncidentID: incidentID,
@@ -280,10 +280,10 @@ func (n *Notifier) dispatchChannel(
 		status = domain.StatusFailed
 		errDetail = sendErr.Error()
 		notificationsSent.WithLabelValues(channel, resultFailed).Inc()
-		n.logger.Error("notification send failed", "user_id", userID, "channel", channel, "err", sendErr)
+		n.logger.ErrorContext(ctx, "notification send failed", "user_id", userID, "channel", channel, "err", sendErr)
 	} else {
 		notificationsSent.WithLabelValues(channel, resultDelivered).Inc()
-		n.logger.Info("notification sent", "user_id", userID, "channel", channel, "incident_id", incidentID)
+		n.logger.InfoContext(ctx, "notification sent", "user_id", userID, "channel", channel, "incident_id", incidentID)
 	}
 	n.appendLog(ctx, &domain.NotificationLog{
 		IncidentID:  incidentID,
@@ -312,6 +312,6 @@ func webhookURLUsable(raw string) bool {
 
 func (n *Notifier) appendLog(ctx context.Context, l *domain.NotificationLog) {
 	if err := n.store.AppendLog(ctx, l); err != nil {
-		n.logger.Error("append notification log failed", "err", err)
+		n.logger.ErrorContext(ctx, "append notification log failed", "err", err)
 	}
 }

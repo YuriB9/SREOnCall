@@ -91,7 +91,7 @@ func (e *Escalator) AssignPolicy(ctx context.Context, tenantID, tenantSlug, inci
 
 	// Trigger tier 1 immediately
 	if err := e.triggerTier(ctx, st, tier1); err != nil {
-		e.logger.Warn("assign policy: trigger tier 1 failed", "incident_id", incidentID, "err", err)
+		e.logger.WarnContext(ctx, "assign policy: trigger tier 1 failed", "incident_id", incidentID, "err", err)
 	}
 	return nil
 }
@@ -120,7 +120,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 			if errors.Is(err, store.ErrConflict) {
 				// Another worker already advanced this state — skip without
 				// publishing a duplicate escalation.exhausted (D1).
-				e.logger.Debug("advance: state already claimed, skipping", "incident_id", st.IncidentID)
+				e.logger.DebugContext(ctx, "advance: state already claimed, skipping", "incident_id", st.IncidentID)
 				return nil
 			}
 			return fmt.Errorf("advance: set exhausted: %w", err)
@@ -131,9 +131,9 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 			TenantID:   st.TenantID,
 			TenantSlug: st.TenantSlug,
 		}); err != nil {
-			e.logger.Warn("publish exhausted failed", "incident_id", st.IncidentID, "err", err)
+			e.logger.WarnContext(ctx, "publish exhausted failed", "incident_id", st.IncidentID, "err", err)
 		}
-		e.logger.Info("escalation exhausted", "incident_id", st.IncidentID)
+		e.logger.InfoContext(ctx, "escalation exhausted", "incident_id", st.IncidentID)
 		return nil
 	}
 	if err != nil {
@@ -146,7 +146,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 	// bundled into the CAS here — the guarded UPDATE only claims the row (D1).
 	if err := e.store.AdvanceEscalationState(ctx, st, expectedTier, "active", nil); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			e.logger.Debug("advance: state already claimed, skipping", "incident_id", st.IncidentID)
+			e.logger.DebugContext(ctx, "advance: state already claimed, skipping", "incident_id", st.IncidentID)
 			return nil
 		}
 		return fmt.Errorf("advance: update state: %w", err)
@@ -154,7 +154,7 @@ func (e *Escalator) AdvanceOrExhaust(ctx context.Context, st *domain.EscalationS
 	escalationsAdvanced.Inc()
 
 	if err := e.triggerTier(ctx, st, nextTier); err != nil {
-		e.logger.Warn("advance: trigger tier failed", "tier", nextTier.TierNumber, "incident_id", st.IncidentID, "err", err)
+		e.logger.WarnContext(ctx, "advance: trigger tier failed", "tier", nextTier.TierNumber, "incident_id", st.IncidentID, "err", err)
 	}
 	return nil
 }
@@ -183,7 +183,7 @@ func (e *Escalator) Stop(ctx context.Context, tenantID, incidentID, reason strin
 		EventType:  reason,
 		Tier:       &tier,
 	}); err != nil {
-		e.logger.Warn("append stop history failed", "incident_id", incidentID, "err", err)
+		e.logger.WarnContext(ctx, "append stop history failed", "incident_id", incidentID, "err", err)
 	}
 	return nil
 }
@@ -229,7 +229,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 			// The event is still published with an empty oncall_user_id; this
 			// must not pass silently — the on-call user gets no notification.
 			getOnCallFailures.Inc()
-			e.logger.Error("get on-call failed, escalating without on-call user",
+			e.logger.ErrorContext(ctx, "get on-call failed, escalating without on-call user",
 				"schedule_id", tier.NotifyScheduleID, "incident_id", st.IncidentID, "err", err)
 		} else {
 			userID = result.UserID
@@ -246,7 +246,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 		OncallUserID:   userID,
 		OncallUsername: username,
 	}); err != nil {
-		e.logger.Warn("append triggered history failed", "incident_id", st.IncidentID, "err", err)
+		e.logger.WarnContext(ctx, "append triggered history failed", "incident_id", st.IncidentID, "err", err)
 	}
 
 	if err := e.pub.PublishTriggered(ctx, events.EscalationTriggered{
@@ -263,7 +263,7 @@ func (e *Escalator) triggerTier(ctx context.Context, st *domain.EscalationState,
 		return fmt.Errorf("trigger tier %d: publish: %w", tier.TierNumber, err)
 	}
 	escalationsTriggered.Inc()
-	e.logger.Info("escalation triggered",
+	e.logger.InfoContext(ctx, "escalation triggered",
 		"incident_id", st.IncidentID, "tier", tier.TierNumber,
 		"oncall_user", userID)
 	return nil

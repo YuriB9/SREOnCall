@@ -119,7 +119,7 @@ func (h *Handler) ListIncidents(w http.ResponseWriter, r *http.Request) {
 
 	incidents, nextCursor, err := h.store.ListIncidents(r.Context(), tenantID, f)
 	if err != nil {
-		h.logger.Error("list incidents", "err", err)
+		h.logger.ErrorContext(r.Context(), "list incidents", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -139,7 +139,7 @@ func (h *Handler) GetIncident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error("get incident", "err", err)
+		h.logger.ErrorContext(r.Context(), "get incident", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +179,7 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid status transition", http.StatusUnprocessableEntity)
 			return
 		}
-		h.logger.Error("validate status transition", "incident_id", id, "err", err)
+		h.logger.ErrorContext(r.Context(), "validate status transition", "incident_id", id, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -202,7 +202,7 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error("update status", "err", err)
+		h.logger.ErrorContext(r.Context(), "update status", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -216,7 +216,7 @@ func (h *Handler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 		Severity:   updated.Severity,
 	}
 	if err := h.pub.PublishUpdated(r.Context(), ev); err != nil {
-		h.logger.Warn("publish updated failed", "incident_id", id, "err", err)
+		h.logger.WarnContext(r.Context(), "publish updated failed", "incident_id", id, "err", err)
 	}
 
 	writeJSON(w, http.StatusOK, updated)
@@ -250,7 +250,7 @@ func (h *Handler) AttachAlert(w http.ResponseWriter, r *http.Request) {
 		Status:      domain.AlertStatusFiring,
 	}
 	if err := h.store.AttachAlert(r.Context(), ia); err != nil {
-		h.logger.Error("attach alert", "err", err)
+		h.logger.ErrorContext(r.Context(), "attach alert", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -270,7 +270,7 @@ func (h *Handler) ListIncidentAlerts(w http.ResponseWriter, r *http.Request) {
 
 	alerts, err := h.store.ListIncidentAlerts(r.Context(), tenantID, id)
 	if err != nil {
-		h.logger.Error("list incident alerts", "err", err)
+		h.logger.ErrorContext(r.Context(), "list incident alerts", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -298,7 +298,7 @@ func (h *Handler) PutLabels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.MergeLabels(r.Context(), id, labels); err != nil {
-		h.logger.Error("merge labels", "err", err)
+		h.logger.ErrorContext(r.Context(), "merge labels", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -310,7 +310,7 @@ func (h *Handler) PutLabels(w http.ResponseWriter, r *http.Request) {
 		Author:     callerID(r),
 		NewValue:   store.LabelsToJSON(labels),
 	}); err != nil {
-		h.logger.Warn("append label-change history failed", "incident_id", id, "err", err)
+		h.logger.WarnContext(r.Context(), "append label-change history failed", "incident_id", id, "err", err)
 	}
 
 	all, err := h.store.GetLabels(r.Context(), id)
@@ -356,7 +356,7 @@ func (h *Handler) AddComment(w http.ResponseWriter, r *http.Request) {
 		AuthorID:   callerID(r),
 	}
 	if err := h.store.AddComment(r.Context(), c); err != nil {
-		h.logger.Error("add comment", "err", err)
+		h.logger.ErrorContext(r.Context(), "add comment", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -368,7 +368,7 @@ func (h *Handler) AddComment(w http.ResponseWriter, r *http.Request) {
 		Author:     c.AuthorID,
 		NewValue:   c.ID,
 	}); err != nil {
-		h.logger.Warn("append comment history failed", "incident_id", id, "err", err)
+		h.logger.WarnContext(r.Context(), "append comment history failed", "incident_id", id, "err", err)
 	}
 
 	writeJSON(w, http.StatusCreated, c)
@@ -380,7 +380,7 @@ func (h *Handler) ListComments(w http.ResponseWriter, r *http.Request) {
 
 	comments, err := h.store.ListComments(r.Context(), tenantID, id)
 	if err != nil {
-		h.logger.Error("list comments", "err", err)
+		h.logger.ErrorContext(r.Context(), "list comments", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -397,7 +397,7 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.logger.Error("delete comment", "err", err)
+		h.logger.ErrorContext(r.Context(), "delete comment", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -412,7 +412,7 @@ func (h *Handler) ListHistory(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.store.ListHistory(r.Context(), tenantID, id)
 	if err != nil {
-		h.logger.Error("list history", "err", err)
+		h.logger.ErrorContext(r.Context(), "list history", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -425,7 +425,7 @@ func (h *Handler) ListGroupingRules(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenant_id")
 	rules, err := h.store.ListGroupingRules(r.Context(), tenantID)
 	if err != nil {
-		h.logger.Error("list grouping rules", "err", err)
+		h.logger.ErrorContext(r.Context(), "list grouping rules", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -454,7 +454,7 @@ func (h *Handler) PutGroupingRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.SetGroupingRule(r.Context(), tenantID, src, body.GroupingLabels); err != nil {
-		h.logger.Error("set grouping rule", "err", err)
+		h.logger.ErrorContext(r.Context(), "set grouping rule", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -471,7 +471,7 @@ func (h *Handler) DeleteGroupingRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.DeleteGroupingRule(r.Context(), tenantID, src); err != nil {
-		h.logger.Error("delete grouping rule", "err", err)
+		h.logger.ErrorContext(r.Context(), "delete grouping rule", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
