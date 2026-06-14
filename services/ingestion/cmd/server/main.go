@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
-	goredis "github.com/redis/go-redis/v9"
 
 	pkgamqp "github.com/sre-oncall/pkg/amqp"
 	pkgdb "github.com/sre-oncall/pkg/db"
@@ -27,8 +24,8 @@ import (
 	"github.com/sre-oncall/ingestion/internal/handler"
 	tenantmw "github.com/sre-oncall/ingestion/internal/middleware"
 	"github.com/sre-oncall/ingestion/internal/publisher"
-
-	"github.com/sre-oncall/pkg/domain"
+	"github.com/sre-oncall/ingestion/internal/store"
+	"github.com/sre-oncall/ingestion/internal/tokenstore"
 )
 
 func main() {
@@ -79,11 +76,11 @@ func main() {
 
 	// ── Wire dependencies ────────────────────────────────────────────────────
 	pub := publisher.New(pkgamqp.NewPublisher(amqpConn))
-	dd := dedup.New(&redisCacheAdapter{rdb}, cfg.DedupTTL)
-	store := &pgStore{pool: pool}
-	tokenStore := &redisTokenStore{rdb}
+	dd := dedup.New(dedup.NewRedisCache(rdb), cfg.DedupTTL)
+	rawStore := store.New(pool)
+	tokenStore := tokenstore.New(rdb)
 
-	h := handler.New(dd, pub, store, logger)
+	h := handler.New(dd, pub, rawStore, logger)
 
 	// ── Router ───────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
@@ -122,43 +119,4 @@ func main() {
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}
-}
-
-// ── Redis adapters ───────────────────────────────────────────────────────────
-
-type redisCacheAdapter struct{ c *goredis.Client }
-
-func (a *redisCacheAdapter) SetNX(ctx context.Context, key, val string, ttl time.Duration) (bool, error) {
-	return a.c.SetNX(ctx, key, val, ttl).Result()
-}
-
-func (a *redisCacheAdapter) Del(ctx context.Context, key string) error {
-	return a.c.Del(ctx, key).Err()
-}
-
-type redisTokenStore struct{ c *goredis.Client }
-
-func (s *redisTokenStore) GetTenantID(ctx context.Context, tokenHash string) (string, error) {
-	val, err := s.c.HGet(ctx, "oncall:tokens:"+tokenHash, "tenant_id").Result()
-	if errors.Is(err, goredis.Nil) {
-		return "", nil
-	}
-	return val, err
-}
-
-// ── PostgreSQL store ─────────────────────────────────────────────────────────
-
-type pgStore struct{ pool *pgxpool.Pool }
-
-func (s *pgStore) SaveRawAlert(ctx context.Context, alert domain.Alert, deduplicated bool) error {
-	payload, err := json.Marshal(alert)
-	if err != nil {
-		return err
-	}
-	_, err = s.pool.Exec(ctx,
-		`INSERT INTO ingestion.raw_alerts (tenant_id, fingerprint, source, payload, deduplicated)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		alert.TenantID, alert.Fingerprint, string(alert.Source), payload, deduplicated,
-	)
-	return err
 }
