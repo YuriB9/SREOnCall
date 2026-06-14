@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
+	"os"
 	"testing"
 
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -66,6 +68,31 @@ func TestContextHandler_NonContextCallHasNoRequestID(t *testing.T) {
 	rec := parseRecord(t, &buf)
 	if _, ok := rec["request_id"]; ok {
 		t.Fatalf("request_id present on non-context call: %v", rec["request_id"])
+	}
+}
+
+//nolint:paralleltest // подменяет os.Stdout и глобальный slog.Default() — нельзя параллелить
+func TestNew_AddsServiceField(t *testing.T) {
+	// Не parallel: New пишет в os.Stdout и подменяет slog.Default().
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	logger := New("info", "incident")
+	logger.Info("hello")
+	_ = w.Close()
+
+	out, _ := io.ReadAll(r)
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatalf("unmarshal: %v (raw=%q)", err, out)
+	}
+	if got := m["service"]; got != "incident" {
+		t.Fatalf("service = %v, want incident", got)
 	}
 }
 

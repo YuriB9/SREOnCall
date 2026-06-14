@@ -24,7 +24,7 @@ import (
 func main() {
 	cfg := config.Load()
 	// Use the shared logger honouring LOG_LEVEL, like the other four services (F5).
-	logger := pkglogger.New(cfg.LogLevel)
+	logger := pkglogger.New(cfg.LogLevel, "scheduling")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
