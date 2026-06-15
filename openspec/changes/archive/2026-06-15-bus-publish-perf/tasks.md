@@ -32,10 +32,10 @@
 - [x] 4.3 `golangci-lint run --new-from-merge-base main` (pkg — без `GOWORK=off`; задетые сервисные модули — с `GOWORK=off`).
 - [x] 4.4 `govulncheck ./...` — чисто.
 - [x] 4.5 `go mod tidy` в задетых модулях — без диффа.
-- [ ] 4.6 `/opsx:verify`.
+- [x] 4.6 `/opsx:verify`.
 
 ## 5. Хэндофф
 
-- [ ] 5.1 `/opsx:archive` (с `--skip-specs` — no-delta).
-- [ ] 5.2 Обновить `docs/audit/00-roadmap.md`: CH14 → `✅ done` в дашборде и в строке чейнджа (заметка для CH15: издатель теперь на переиспользуемом канале).
+- [x] 5.1 `/opsx:archive` (с `--skip-specs` — no-delta).
+- [x] 5.2 Обновить `docs/audit/00-roadmap.md`: CH14 → `✅ done` в дашборде и в строке чейнджа (заметка для CH15: издатель теперь на переиспользуемом канале).
 - [x] 5.3 `docs/spec-vs-code-audit.md` — обновлять не требуется (поведение/спек не меняются).
