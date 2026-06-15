@@ -72,7 +72,8 @@ func main() {
 	ch.Close()
 
 	// ── Wire dependencies ────────────────────────────────────────────────────
-	pub := publisher.New(pkgamqp.NewPublisher(amqpConn))
+	amqpPub := pkgamqp.NewPublisher(amqpConn)
+	pub := publisher.New(amqpPub)
 	dd := dedup.New(dedup.NewRedisCache(rdb), cfg.DedupTTL)
 	rawStore := store.New(pool)
 	tokenStore := tokenstore.New(rdb)
@@ -100,4 +101,6 @@ func main() {
 		logger.Error("server error", "err", err)
 		os.Exit(1)
 	}
+	_ = amqpPub.Close()  // close the reusable publish channel (P1)
+	_ = amqpConn.Close() // explicit close
 }

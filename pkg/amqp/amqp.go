@@ -113,14 +113,59 @@ func (c *Connection) Close() error {
 	return nil
 }
 
-// Publisher sends messages to RabbitMQ with up to 3 retries and exponential backoff.
+// Publisher sends messages to RabbitMQ with up to 3 retries and exponential
+// backoff. It reuses a single long-lived channel instead of opening one per
+// message (P1): channel.open/channel.close are synchronous protocol commands,
+// so per-message channels cost two extra broker round-trips. amqp091 channels
+// are not safe for concurrent publishing, so mu serialises publish and guards
+// the cached channel; the channel is reopened lazily on error or when closed.
 type Publisher struct {
 	conn *Connection
+	mu   sync.Mutex
+	ch   *amqp.Channel
 }
 
 // NewPublisher creates a Publisher backed by the given Connection.
 func NewPublisher(conn *Connection) *Publisher {
 	return &Publisher{conn: conn}
+}
+
+// channel returns the cached channel, reopening it if absent or closed (e.g.
+// after a broker drop or a Connection reconnect). Callers must hold mu.
+func (p *Publisher) channel(ctx context.Context) (*amqp.Channel, error) {
+	if p.ch != nil && !p.ch.IsClosed() {
+		return p.ch, nil
+	}
+	ch, err := p.conn.Channel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.ch = ch
+	return ch, nil
+}
+
+// resetChannel discards the cached channel so the next publish reopens a fresh
+// one. Called after a publish error, since the channel may be broken. Callers
+// must hold mu.
+func (p *Publisher) resetChannel() {
+	if p.ch != nil {
+		_ = p.ch.Close()
+		p.ch = nil
+	}
+}
+
+// Close closes the cached channel. Safe to call multiple times and with no
+// channel open; the underlying Connection.Close also cascades to channels.
+func (p *Publisher) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.ch != nil && !p.ch.IsClosed() {
+		err := p.ch.Close()
+		p.ch = nil
+		return err
+	}
+	p.ch = nil
+	return nil
 }
 
 // Publish sends body to the given exchange with routingKey. The final outcome
@@ -155,12 +200,13 @@ func (p *Publisher) publishWithRetry(ctx context.Context, exchange, routingKey s
 }
 
 func (p *Publisher) publish(ctx context.Context, exchange, routingKey string, body []byte) error {
-	ch, err := p.conn.Channel(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ch, err := p.channel(ctx)
 	if err != nil {
 		return err
 	}
-	defer ch.Close()
-	return ch.PublishWithContext(
+	if err := ch.PublishWithContext(
 		ctx,
 		exchange,
 		routingKey,
@@ -171,5 +217,10 @@ func (p *Publisher) publish(ctx context.Context, exchange, routingKey string, bo
 			DeliveryMode: amqp.Persistent,
 			Body:         body,
 		},
-	)
+	); err != nil {
+		// The channel may be broken; drop it so the next attempt reopens.
+		p.resetChannel()
+		return err
+	}
+	return nil
 }
