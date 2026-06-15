@@ -58,6 +58,7 @@ func main() {
 	// publisher before building the escalator so esc is constructed once (F9).
 	var pub escalator.Publisher = publisher.NewNoop()
 	var amqpConn *pkgamqp.Connection
+	var amqpPub *pkgamqp.Publisher
 
 	if cfg.AMQPURL != "" {
 		amqpConn, err = pkgamqp.NewConnection(cfg.AMQPURL)
@@ -77,7 +78,8 @@ func main() {
 		}
 		amqpCh.Close()
 
-		pub = publisher.New(pkgamqp.NewPublisher(amqpConn))
+		amqpPub = pkgamqp.NewPublisher(amqpConn)
+		pub = publisher.New(amqpPub)
 	} else {
 		logger.Warn("RABBITMQ_URL not set — running without AMQP consumer")
 	}
@@ -153,6 +155,9 @@ func main() {
 		os.Exit(1)
 	}
 	_ = g.Wait() // drain consumer + monitor in-flight work (C2)
+	if amqpPub != nil {
+		_ = amqpPub.Close() // close the reusable publish channel (P1)
+	}
 	if amqpConn != nil {
 		_ = amqpConn.Close() // explicit close (C2)
 	}

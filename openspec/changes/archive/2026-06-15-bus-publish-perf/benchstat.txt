@@ -1,0 +1,15 @@
+goos: linux
+goarch: amd64
+pkg: github.com/sre-oncall/pkg/amqp
+cpu: Intel(R) Xeon(R) CPU E3-1240 V2 @ 3.40GHz
+          │ /tmp/before.txt │            /tmp/after.txt            │
+          │     sec/op      │    sec/op     vs base                │
+Publish-8     917.41µ ± 11%   21.99µ ± 10%  -97.60% (p=0.000 n=10)
+
+          │ /tmp/before.txt │           /tmp/after.txt           │
+          │      B/op       │    B/op     vs base                │
+Publish-8       2400.0 ± 0%   904.0 ± 0%  -62.33% (p=0.000 n=10)
+
+          │ /tmp/before.txt │           /tmp/after.txt           │
+          │    allocs/op    │ allocs/op   vs base                │
+Publish-8        73.00 ± 0%   29.00 ± 0%  -60.27% (p=0.000 n=10)

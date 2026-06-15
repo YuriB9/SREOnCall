@@ -36,14 +36,14 @@
 | CH11 | pipeline-metrics-and-alerts | 5 | CH10, CH07 | ✅ (O2,R1; O5 вынесена) |
 | CH12 | log-correlation | 5 | CH10 | ✅ |
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
-| CH14 | bus-publish-perf | 6 | CH07 | ☐ |
+| CH14 | bus-publish-perf | 6 | CH07 | ✅ |
 | CH15 | ingestion-throughput | 6 | CH09, CH11 | ☐ |
 | CH16 | tenantcache-singleflight | 6 | CH01 | ☐ |
 | CH17 | test-hardening | 7 | CH01 | ☐ |
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **12 / 19** done.
+Прогресс: **13 / 19** done.
 
 ---
 
@@ -320,10 +320,34 @@
 
 ## Фаза 6 — Производительность (после метрик/бенчей)
 
-### CH14 · `bus-publish-perf` 🟡
+### CH14 · `bus-publish-perf` 🟡 — ✅ done (2026-06-15)
 **Корень:** канал AMQP пересоздаётся на каждую публикацию.
 **Закрывает:** P1 (переиспользуемый канал/пул на `Publisher`).
 **Зависит от:** CH07 (там уже переработан `pkg/amqp`), CH01 (бенчмарки). Требует benchstat до/после в коммите.
+
+> **Реализовано.** Чейндж `bus-publish-perf` (no-delta perf, архив с `--skip-specs`; ADR не вводился — локальная оптимизация в рамках транспорта из ADR-0015).
+> Что важно для следующих сессий:
+> - **P1 — `pkg/amqp.Publisher` держит один долгоживущий канал** (`mu sync.Mutex` + `ch *amqp.Channel`,
+>   `pkg/amqp/amqp.go`): приватный `channel(ctx)` переиспользует/лениво переоткрывает канал
+>   (`IsClosed()`-проверка переживает реконнект `Connection`), `resetChannel()` сбрасывает его при
+>   ошибке публикации (ретрай `publishWithRetry` переоткроет). Убраны `channel.open`/`channel.close`
+>   (2 round-trip'а) с каждой публикации. Ретраи и метрика `amqp_publish_total` сохранены.
+> - **amqp091-каналы не потокобезопасны для публикации** → весь `publish` под `mu` (сериализация
+>   публикаций одного `Publisher`). Удержание мьютекса = один `PublishWithContext` (без confirms).
+>   **Publisher confirms — вне объёма P1** (вернули бы round-trip), в бэклог. Пул каналов отклонён
+>   до появления профиля, где сериализация станет узким местом.
+> - **`Publisher.Close()`** разведён в graceful-shutdown ingestion/incident/escalation (перед
+>   `amqpConn.Close()`). notification/scheduling не публикуют — не затронуты.
+> - **benchstat (n=10, локальный docker-compose RabbitMQ):** `917µs → 22µs/op (−97.6%)`,
+>   `2400 → 904 B/op (−62%)`, `73 → 29 allocs/op (−60%)`. Бенч `BenchmarkPublish`
+>   (`pkg/amqp/amqp_bench_test.go`) требует live-брокер (`RABBITMQ_URL`, по умолчанию docker-compose),
+>   `b.Skip` без него — в CI без брокера скипается. **Для CH15** (`ingestion-throughput`): издатель
+>   теперь на переиспользуемом канале — группировку публикаций строить на нём.
+> - **Wire-формат `Envelope`/payload, API, схема БД не менялись — не BREAKING.** Дельты спека нет.
+> - Проверки: `go build/vet/test` всех 6 модулей, **`-race`** (`pkg/amqp`, чисто), `golangci-lint
+>   --new-from-merge-base main` (0 new в pkg и 3 сервисах), `govulncheck` (0 достижимых),
+>   `go mod tidy` без диффа. Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` —
+>   backlog T5 (CH17), не трогались.
 
 ### CH15 · `ingestion-throughput` 🟡
 **Корень:** последовательный I/O без батчинга.

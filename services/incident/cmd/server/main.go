@@ -64,7 +64,8 @@ func main() {
 
 	// ── Wire dependencies ────────────────────────────────────────────────────
 	st := store.New(pool)
-	pub := publisher.New(pkgamqp.NewPublisher(amqpConn))
+	amqpPub := pkgamqp.NewPublisher(amqpConn)
+	pub := publisher.New(amqpPub)
 	h := handler.New(st, pub, logger)
 	cons := consumer.New(st, pub, logger)
 
@@ -118,5 +119,6 @@ func main() {
 		os.Exit(1)
 	}
 	_ = g.Wait()         // drain in-flight consumer work (C2)
+	_ = amqpPub.Close()  // close the reusable publish channel (P1)
 	_ = amqpConn.Close() // explicit close (C2)
 }
