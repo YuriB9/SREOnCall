@@ -8,8 +8,25 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
+
 	"github.com/sre-oncall/notification/internal/schedclient"
 )
+
+// TestMain ловит утечки sweeper-горутины кэша (T3, хвост CH16): каждый New
+// поднимает фоновую чистку, которая ДОЛЖНА завершаться по отмене ctx.
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
+
+// newTestCache создаёт кэш с ctx, отменяемым по завершении теста, чтобы
+// sweeper-горутина не утекала между тестами (иначе goleak в TestMain падает).
+func newTestCache(t *testing.T, f configFetcher, ttl time.Duration) *Cache {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return New(ctx, f, ttl)
+}
 
 // fakeFetcher counts calls and can block until released, so a test can hold
 // concurrent Get calls in-flight simultaneously to exercise singleflight.
@@ -42,7 +59,7 @@ func TestGet_CoalescesConcurrentMisses(t *testing.T) {
 		entered: make(chan struct{}, 1),
 		release: make(chan struct{}),
 	}
-	c := New(context.Background(), f, time.Minute)
+	c := newTestCache(t, f, time.Minute)
 
 	var wg sync.WaitGroup
 	results := make([]*schedclient.TenantNotificationConfig, n)
@@ -80,7 +97,7 @@ func TestGet_CoalescesConcurrentMisses(t *testing.T) {
 func TestGet_CacheHitWithinTTL(t *testing.T) {
 	t.Parallel()
 	f := &fakeFetcher{}
-	c := New(context.Background(), f, time.Minute)
+	c := newTestCache(t, f, time.Minute)
 
 	if _, err := c.Get(context.Background(), "acme"); err != nil {
 		t.Fatalf("first Get: %v", err)
@@ -97,7 +114,7 @@ func TestGet_CacheHitWithinTTL(t *testing.T) {
 func TestGet_ErrorNotCached(t *testing.T) {
 	t.Parallel()
 	f := &fakeFetcher{err: errors.New("boom")}
-	c := New(context.Background(), f, time.Minute)
+	c := newTestCache(t, f, time.Minute)
 
 	if _, err := c.Get(context.Background(), "acme"); err == nil {
 		t.Fatal("expected error from first Get")
@@ -119,7 +136,7 @@ func TestGet_ErrorNotCached(t *testing.T) {
 func TestEvictExpired(t *testing.T) {
 	t.Parallel()
 	f := &fakeFetcher{}
-	c := New(context.Background(), f, time.Minute)
+	c := newTestCache(t, f, time.Minute)
 
 	c.mu.Lock()
 	c.data["stale"] = &entry{cfg: &schedclient.TenantNotificationConfig{}, expiresAt: time.Now().Add(-time.Hour)}

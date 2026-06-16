@@ -23,42 +23,48 @@ func makeSchedule(rotation []string, shiftDur, tz, startDate string) *domain.Sch
 // ── ParseISO8601Duration ──────────────────────────────────────────────────────
 
 func TestParseISO8601Duration(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
+		name  string
 		input string
 		want  time.Duration
 		fail  bool
 	}{
-		{"P7D", 7 * 24 * time.Hour, false},
-		{"P1W", 7 * 24 * time.Hour, false},
-		{"P14D", 14 * 24 * time.Hour, false},
-		{"PT12H", 12 * time.Hour, false},
-		{"PT30M", 30 * time.Minute, false},
-		{"P1DT12H", 36 * time.Hour, false},
-		{"", 0, true},
-		{"7D", 0, true},
-		{"P", 0, true},
+		{"7 days", "P7D", 7 * 24 * time.Hour, false},
+		{"1 week", "P1W", 7 * 24 * time.Hour, false},
+		{"14 days", "P14D", 14 * 24 * time.Hour, false},
+		{"12 hours", "PT12H", 12 * time.Hour, false},
+		{"30 minutes", "PT30M", 30 * time.Minute, false},
+		{"day and time", "P1DT12H", 36 * time.Hour, false},
+		{"empty string", "", 0, true},
+		{"missing P prefix", "7D", 0, true},
+		{"P only", "P", 0, true},
 	}
 	for _, c := range cases {
-		got, err := rotation.ParseISO8601Duration(c.input)
-		if c.fail {
-			if err == nil {
-				t.Errorf("ParseISO8601Duration(%q) expected error, got nil", c.input)
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := rotation.ParseISO8601Duration(c.input)
+			if c.fail {
+				if err == nil {
+					t.Errorf("ParseISO8601Duration(%q) expected error, got nil", c.input)
+				}
+				return
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("ParseISO8601Duration(%q) unexpected error: %v", c.input, err)
-			continue
-		}
-		if got != c.want {
-			t.Errorf("ParseISO8601Duration(%q) = %v, want %v", c.input, got, c.want)
-		}
+			if err != nil {
+				t.Errorf("ParseISO8601Duration(%q) unexpected error: %v", c.input, err)
+				return
+			}
+			if got != c.want {
+				t.Errorf("ParseISO8601Duration(%q) = %v, want %v", c.input, got, c.want)
+			}
+		})
 	}
 }
 
 // ── OnCallAt — basic rotation ─────────────────────────────────────────────────
 
 func TestOnCallAt_BasicRotation(t *testing.T) {
+	t.Parallel()
 	sched := makeSchedule([]string{"alice", "bob", "carol"}, "P7D", "UTC", "2024-01-01")
 	// Week 0: alice
 	at := time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)
@@ -94,6 +100,7 @@ func TestOnCallAt_BasicRotation(t *testing.T) {
 // ── OnCallAt — override priority ──────────────────────────────────────────────
 
 func TestOnCallAt_OverridePriority(t *testing.T) {
+	t.Parallel()
 	sched := makeSchedule([]string{"alice", "bob"}, "P7D", "UTC", "2024-01-01")
 
 	// Override: dave is on call for the full first week
@@ -129,6 +136,7 @@ func TestOnCallAt_OverridePriority(t *testing.T) {
 // ── OnCallAt — DST edge case ──────────────────────────────────────────────────
 
 func TestOnCallAt_DST(t *testing.T) {
+	t.Parallel()
 	// Europe/Berlin switches DST in late March; shift boundary must not break
 	sched := makeSchedule([]string{"alice", "bob"}, "P7D", "Europe/Berlin", "2024-03-25")
 
@@ -148,6 +156,7 @@ func TestOnCallAt_DST(t *testing.T) {
 // ── GenerateShifts ────────────────────────────────────────────────────────────
 
 func TestGenerateShifts_NoOverrides(t *testing.T) {
+	t.Parallel()
 	sched := makeSchedule([]string{"alice", "bob"}, "P7D", "UTC", "2024-01-01")
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
@@ -168,6 +177,7 @@ func TestGenerateShifts_NoOverrides(t *testing.T) {
 }
 
 func TestGenerateShifts_WithOverride(t *testing.T) {
+	t.Parallel()
 	sched := makeSchedule([]string{"alice", "bob"}, "P7D", "UTC", "2024-01-01")
 	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)
@@ -196,6 +206,7 @@ func TestGenerateShifts_WithOverride(t *testing.T) {
 }
 
 func TestOnCallAt_EmptyRotation(t *testing.T) {
+	t.Parallel()
 	sched := makeSchedule([]string{}, "P7D", "UTC", "2024-01-01")
 	_, _, _, err := rotation.OnCallAt(sched, nil, time.Now())
 	if err == nil {

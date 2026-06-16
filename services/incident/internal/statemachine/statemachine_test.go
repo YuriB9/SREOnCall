@@ -7,49 +7,49 @@ import (
 	"github.com/sre-oncall/incident/internal/statemachine"
 )
 
-func TestValidate_AllowedTransitions(t *testing.T) {
+// TestValidate_TransitionMatrix покрывает матрицу переходов стейт-машины
+// инцидента именованными подтестами: имя кейса в выводе сразу показывает, какой
+// переход упал, и добавить новый кейс — одна строка.
+func TestValidate_TransitionMatrix(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
-		from incdomain.Status
-		to   incdomain.Status
+		name    string
+		from    incdomain.Status
+		to      incdomain.Status
+		allowed bool
 	}{
-		{incdomain.StatusOpen, incdomain.StatusAcknowledged},
-		{incdomain.StatusOpen, incdomain.StatusResolved},
-		{incdomain.StatusAcknowledged, incdomain.StatusResolved},
-		{incdomain.StatusResolved, incdomain.StatusOpen},
-	}
-	for _, tc := range cases {
-		if err := statemachine.Validate(tc.from, tc.to); err != nil {
-			t.Errorf("expected %s → %s to be allowed, got: %v", tc.from, tc.to, err)
-		}
-	}
-}
+		{"open → acknowledged", incdomain.StatusOpen, incdomain.StatusAcknowledged, true},
+		{"open → resolved", incdomain.StatusOpen, incdomain.StatusResolved, true},
+		{"acknowledged → resolved", incdomain.StatusAcknowledged, incdomain.StatusResolved, true},
+		{"resolved → open (reopen)", incdomain.StatusResolved, incdomain.StatusOpen, true},
 
-func TestValidate_ForbiddenTransitions(t *testing.T) {
-	cases := []struct {
-		from incdomain.Status
-		to   incdomain.Status
-	}{
-		{incdomain.StatusOpen, incdomain.StatusOpen},
-		{incdomain.StatusAcknowledged, incdomain.StatusOpen},
-		{incdomain.StatusAcknowledged, incdomain.StatusAcknowledged},
-		{incdomain.StatusResolved, incdomain.StatusAcknowledged},
-		{incdomain.StatusResolved, incdomain.StatusResolved},
+		{"open → open", incdomain.StatusOpen, incdomain.StatusOpen, false},
+		{"acknowledged → open", incdomain.StatusAcknowledged, incdomain.StatusOpen, false},
+		{"acknowledged → acknowledged", incdomain.StatusAcknowledged, incdomain.StatusAcknowledged, false},
+		{"resolved → acknowledged", incdomain.StatusResolved, incdomain.StatusAcknowledged, false},
+		{"resolved → resolved", incdomain.StatusResolved, incdomain.StatusResolved, false},
 	}
 	for _, tc := range cases {
-		if err := statemachine.Validate(tc.from, tc.to); err == nil {
-			t.Errorf("expected %s → %s to be forbidden, got nil", tc.from, tc.to)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := statemachine.Validate(tc.from, tc.to)
+			if tc.allowed && err != nil {
+				t.Errorf("expected %s → %s to be allowed, got: %v", tc.from, tc.to, err)
+			}
+			if !tc.allowed && err == nil {
+				t.Errorf("expected %s → %s to be forbidden, got nil", tc.from, tc.to)
+			}
+		})
 	}
 }
 
 func TestValidate_ErrorType(t *testing.T) {
+	t.Parallel()
 	err := statemachine.Validate(incdomain.StatusAcknowledged, incdomain.StatusOpen)
-	var inv statemachine.ErrInvalidTransition
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if _, ok := err.(statemachine.ErrInvalidTransition); !ok {
 		t.Fatalf("expected ErrInvalidTransition, got %T: %v", err, err)
 	}
-	_ = inv
 }

@@ -39,11 +39,11 @@
 | CH14 | bus-publish-perf | 6 | CH07 | ✅ |
 | CH15 | ingestion-throughput | 6 | CH09, CH11 | ✅ |
 | CH16 | tenantcache-singleflight | 6 | CH01 | ✅ |
-| CH17 | test-hardening | 7 | CH01 | ☐ |
+| CH17 | test-hardening | 7 | CH01 | ✅ |
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **15 / 19** done.
+Прогресс: **16 / 19** done.
 
 ---
 
@@ -382,9 +382,19 @@
 
 ## Фаза 7 — Тест/стиль-гигиена (низкий приоритет, многое уже энфорсит линтер)
 
-### CH17 · `test-hardening` 🟢
+### CH17 · `test-hardening` 🟢 — ✅ done (2026-06-16)
 **Закрывает:** T3 (`goleak` в `consumer`/`monitor`/`pkg/amqp`), T4 (юниты на `pkg/amqp.Envelope`, `tenantcache`, store эскалации — регресс-гард к D1), T5 (`t.Parallel()` + table-driven для парсера/матрицы).
 **Зависит от:** CH01 (CI их гоняет), CH07/CH08 (тесты на новые гарантии).
+
+> **Реализовано.** Чейндж `test-hardening` (no-delta infra/tests, архив с `--skip-specs`; ADR не вводился). Только тестовый код + dev-зависимость `go.uber.org/goleak v1.3.0` в `pkg`/`incident`/`escalation`/`notification`. Продакшн-код, API, события RabbitMQ, схема БД — без изменений.
+> Что важно для следующих сессий:
+> - **T3 goleak** — `TestMain` с `goleak.VerifyTestMain(m)` в `pkg/amqp`, консьюмерах incident/escalation/notification и escalation `monitor`; в `tenantcache` sweeper-горутина теперь покрыта goleak (хвост CH16) — тесты с фоновыми горутинами обязаны отдавать **отменяемый ctx** (хелпер `newTestCache` с `t.Cleanup(cancel)`), иначе VerifyTestMain падает. **Новые пакеты с горутинами — добавлять такой же `TestMain`.**
+> - **T4** покрыты все 6 целей: `pkg/amqp/envelope_test.go` (контракт Wrap/Unwrap); `escalation/monitor` (юнит `step()` на интерфейсном фейке, white-box); notification `ratelimit`/`dispatcher` (отменяемый по ctx backoff — регресс C5; dispatcher white-box со stub-RoundTripper, т.к. SSRF-guard блокирует loopback httptest); `scheduling/keycloak` (Admin API через `httptest`, клиент на `NewStdClient` без guard'а — loopback ОК).
+>   - **`escalation/store` — настоящий integration-тест** (`//go:build integration`, `store_integration_test.go`): регресс **D1** — 16 параллельных `AdvanceEscalationState` на одной строке → ровно 1 победитель, остальные `ErrConflict` (под `-race`); + `ListExpiredStates` фильтр status/time. Миграции применяются идемпотентно (`pkgmigrate.Run("file://../../migrations", …)`), `t.Skip` без `DB_DSN`. **Грабли:** пул закрывать через `t.Cleanup(pool.Close)`, не `defer` в тесте — иначе DELETE-cleanup сидов идёт по закрытому пулу (defer срабатывает раньше Cleanup).
+> - **T5** — `ParseISO8601Duration` (rotation) и матрица переходов стейт-машины incident переведены на table-driven с `t.Run`+`t.Parallel`; `t.Parallel()` добавлен в независимые юниты; **go vet httpresponse-nil-deref** в `handler_test.go` (incident/escalation/scheduling) починен DRY-хелперами `mustGet/mustPost/mustDo` (проверяют err до использования resp). **Закрыт backlog T5 из CH01–CH16.**
+>   - **paralleltest** (был в baseline CH01) теперь активен на изменённых файлах. Тесты с общим состоянием (package-global gauge `backlog` в monitor; живой Postgres в store-integration) помечены `//nolint:paralleltest` с причиной — серийность осознанная.
+>   - **N1 (package-comment для `dispatcher`)** всплыл на новом тест-файле — подавлен `//nolint:revive` с пометкой на **CH18** (не расширяли объём).
+> - Проверки: `go build/vet/test` всех 5 модулей (зелено), **`-race`** (amqp/консьюмеры/monitor/tenantcache/dispatcher — чисто), `go test -tags integration` escalation store (живой Postgres — зелено, идемпотентная очистка), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` (только goleak добавлен).
 
 ### CH18 · `docs-and-style` 🟢
 **Закрывает:** N1 (package-комментарии во все пакеты), N3 (`Deps`/options для `notifier.New`; разнести крупные хендлеры по файлам), N4 (`SeverityUnknown` + логировать неизвестную severity вместо тихого `Info`; префикс пакета в sentinel-строках), N5 (`[]any`, LICENSE/CONTRIBUTING), N2 (стуттер — точечно/по соглашению).

@@ -20,6 +20,26 @@ import (
 	"github.com/sre-oncall/pkg/events"
 )
 
+// mustGet/mustDo проверяют ошибку транспорта до использования ответа (T5: иначе
+// go vet httpresponse предупреждает об использовании resp до проверки err).
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+func mustDo(t *testing.T, req *http.Request) *http.Response {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", req.Method, req.URL, err)
+	}
+	return resp
+}
+
 // ── In-memory store ───────────────────────────────────────────────────────────
 
 type memStore struct {
@@ -319,14 +339,14 @@ func TestHandler_DefaultPolicy_RoundTrip(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/escalations/v1/tenant-b/default-policy",
 		bytes.NewBufferString(`{"policy_id":"pol-default"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT default-policy: expected 200, got %d", resp.StatusCode)
 	}
 
 	// GET default-policy
-	resp2, _ := http.Get(srv.URL + "/api/escalations/v1/tenant-b/default-policy")
+	resp2 := mustGet(t, srv.URL+"/api/escalations/v1/tenant-b/default-policy")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("GET default-policy: expected 200, got %d", resp2.StatusCode)
@@ -354,7 +374,7 @@ func TestHandler_ManualEscalate_AdvancesTier(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/escalations/v1/tenant-a/incidents/inc-200/escalate", nil)
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("manual escalate: expected 200, got %d", resp.StatusCode)

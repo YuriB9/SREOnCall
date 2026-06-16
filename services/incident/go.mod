@@ -8,6 +8,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/sre-oncall/pkg v0.0.0
+	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.17.0
 )
 

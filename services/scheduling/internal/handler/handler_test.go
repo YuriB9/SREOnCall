@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,35 @@ import (
 	"github.com/sre-oncall/scheduling/internal/handler"
 	"github.com/sre-oncall/scheduling/internal/store"
 )
+
+// mustGet/mustPost/mustDo проверяют ошибку транспорта до использования ответа
+// (T5: иначе go vet httpresponse предупреждает об использовании resp до err).
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
+func mustPost(t *testing.T, url, contentType string, body io.Reader) *http.Response {
+	t.Helper()
+	resp, err := http.Post(url, contentType, body)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	return resp
+}
+
+func mustDo(t *testing.T, req *http.Request) *http.Response {
+	t.Helper()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", req.Method, req.URL, err)
+	}
+	return resp
+}
 
 // ── In-memory store stub ──────────────────────────────────────────────────────
 
@@ -332,7 +362,7 @@ func TestHandler_Override_Conflict(t *testing.T) {
 
 	// First override
 	body := `{"user_id":"dave","start_at":"2024-01-01T00:00:00Z","end_at":"2024-01-08T00:00:00Z"}`
-	resp1, _ := http.Post(srv.URL+"/api/schedules/v1/tenant-a/schedules/sched-1/overrides",
+	resp1 := mustPost(t, srv.URL+"/api/schedules/v1/tenant-a/schedules/sched-1/overrides",
 		"application/json", bytes.NewBufferString(body))
 	resp1.Body.Close()
 	if resp1.StatusCode != http.StatusCreated {
@@ -340,7 +370,7 @@ func TestHandler_Override_Conflict(t *testing.T) {
 	}
 
 	// Overlapping override
-	resp2, _ := http.Post(srv.URL+"/api/schedules/v1/tenant-a/schedules/sched-1/overrides",
+	resp2 := mustPost(t, srv.URL+"/api/schedules/v1/tenant-a/schedules/sched-1/overrides",
 		"application/json", bytes.NewBufferString(body))
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
@@ -406,13 +436,13 @@ func TestHandler_NotificationConfig(t *testing.T) {
 	body := `{"mattermost_webhook_url":"https://203.0.113.10/hook","mattermost_channel":"oncall","smtp_from":"oncall@example.com"}`
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
-	resp, _ := http.DefaultClient.Do(req)
+	resp := mustDo(t, req)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT notification-config: expected 200, got %d", resp.StatusCode)
 	}
 
-	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/tenant-a/notification-config")
+	resp2 := mustGet(t, srv.URL+"/api/schedules/v1/tenants/tenant-a/notification-config")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("GET notification-config: expected 200, got %d", resp2.StatusCode)
@@ -701,14 +731,14 @@ func TestTenantCRUD(t *testing.T) {
 
 	// Create tenant-a
 	body := bytes.NewBufferString(`{"slug":"team-a","name":"Team A"}`)
-	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
+	resp := mustPost(t, srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create tenant: expected 201, got %d", resp.StatusCode)
 	}
 
 	// Get it back
-	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-a")
+	resp2 := mustGet(t, srv.URL+"/api/schedules/v1/tenants/team-a")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("get tenant: expected 200, got %d", resp2.StatusCode)
@@ -723,7 +753,7 @@ func TestTenantCRUD(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/schedules/v1/tenants/team-a",
 		bytes.NewBufferString(`{"name":"Team Alpha"}`))
 	req.Header.Set("Content-Type", "application/json")
-	resp3, _ := http.DefaultClient.Do(req)
+	resp3 := mustDo(t, req)
 	defer resp3.Body.Close()
 	if resp3.StatusCode != http.StatusOK {
 		t.Errorf("patch tenant: expected 200, got %d", resp3.StatusCode)
@@ -731,7 +761,7 @@ func TestTenantCRUD(t *testing.T) {
 
 	// Delete
 	req2, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/schedules/v1/tenants/team-a", nil)
-	resp4, _ := http.DefaultClient.Do(req2)
+	resp4 := mustDo(t, req2)
 	defer resp4.Body.Close()
 	if resp4.StatusCode != http.StatusNoContent {
 		t.Errorf("delete tenant: expected 204, got %d", resp4.StatusCode)
@@ -746,14 +776,14 @@ func TestTenantSlugUniqueness(t *testing.T) {
 	defer srv.Close()
 
 	body := bytes.NewBufferString(`{"slug":"dup","name":"First"}`)
-	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
+	resp := mustPost(t, srv.URL+"/api/schedules/v1/tenants/", "application/json", body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("first create: expected 201, got %d", resp.StatusCode)
 	}
 
 	body2 := bytes.NewBufferString(`{"slug":"dup","name":"Second"}`)
-	resp2, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/", "application/json", body2)
+	resp2 := mustPost(t, srv.URL+"/api/schedules/v1/tenants/", "application/json", body2)
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusConflict {
 		t.Errorf("duplicate slug: expected 409, got %d", resp2.StatusCode)
@@ -777,7 +807,7 @@ func TestTenantIsolation_Schedules(t *testing.T) {
 	}
 
 	// team-b sees only its own schedule
-	resp, _ := http.Get(srv.URL + "/api/schedules/v1/team-b/schedules")
+	resp := mustGet(t, srv.URL+"/api/schedules/v1/team-b/schedules")
 	defer resp.Body.Close()
 	var schedules []domain.Schedule
 	_ = json.NewDecoder(resp.Body).Decode(&schedules)
@@ -797,7 +827,7 @@ func TestWebhookToken_ZabbixSourceRejected(t *testing.T) {
 	st.tenants["team-c"] = &domain.Tenant{ID: "t-c", Slug: "team-c", Name: "C"}
 
 	body := bytes.NewBufferString(`{"source":"zabbix"}`)
-	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
+	resp := mustPost(t, srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnprocessableEntity {
 		t.Fatalf("create zabbix token: expected 422, got %d", resp.StatusCode)
@@ -812,7 +842,7 @@ func TestWebhookToken_CreateAndList(t *testing.T) {
 	st.tenants["team-c"] = &domain.Tenant{ID: "t-c", Slug: "team-c", Name: "C"}
 
 	body := bytes.NewBufferString(`{"source":"alertmanager"}`)
-	resp, _ := http.Post(srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
+	resp := mustPost(t, srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens", "application/json", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create token: expected 201, got %d", resp.StatusCode)
@@ -827,7 +857,7 @@ func TestWebhookToken_CreateAndList(t *testing.T) {
 	}
 
 	// List tokens — should show 1 (without plaintext token)
-	resp2, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-c/webhook-tokens")
+	resp2 := mustGet(t, srv.URL+"/api/schedules/v1/tenants/team-c/webhook-tokens")
 	defer resp2.Body.Close()
 	var tokens []domain.WebhookToken
 	_ = json.NewDecoder(resp2.Body).Decode(&tokens)
@@ -848,7 +878,7 @@ func TestWebhookToken_IsolatedByTenant(t *testing.T) {
 	http.Post(srv.URL+"/api/schedules/v1/tenants/team-d/webhook-tokens", "application/json", body) //nolint
 
 	// team-e sees no tokens
-	resp, _ := http.Get(srv.URL + "/api/schedules/v1/tenants/team-e/webhook-tokens")
+	resp := mustGet(t, srv.URL+"/api/schedules/v1/tenants/team-e/webhook-tokens")
 	defer resp.Body.Close()
 	var tokens []domain.WebhookToken
 	_ = json.NewDecoder(resp.Body).Decode(&tokens)
