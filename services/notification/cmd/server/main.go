@@ -60,7 +60,7 @@ func main() {
 	// ── Dependencies ──────────────────────────────────────────────────────────
 	st := store.New(pool)
 	schedClient := schedclient.New(cfg.SchedulingURL, cfg.SchedulingAdminKey)
-	cache := tenantcache.New(schedClient, 5*time.Minute)
+	cache := tenantcache.New(ctx, schedClient, 5*time.Minute)
 	rl := ratelimit.New(rdb, cfg.RateLimitMax, cfg.RateLimitWindow)
 	emailDisp := dispatcher.NewEmail(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword)
 	mmDisp := dispatcher.NewMattermost()

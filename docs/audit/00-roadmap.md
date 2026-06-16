@@ -38,12 +38,12 @@
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
 | CH14 | bus-publish-perf | 6 | CH07 | ✅ |
 | CH15 | ingestion-throughput | 6 | CH09, CH11 | ✅ |
-| CH16 | tenantcache-singleflight | 6 | CH01 | ☐ |
+| CH16 | tenantcache-singleflight | 6 | CH01 | ✅ |
 | CH17 | test-hardening | 7 | CH01 | ☐ |
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **14 / 19** done.
+Прогресс: **15 / 19** done.
 
 ---
 
@@ -364,10 +364,19 @@
 > - **Wire-формат `alert.received`, API, схема БД не менялись — не BREAKING.** Дельты спека нет.
 > - Проверки: `go build/vet/test` (ingestion, incident), **`-race`** (ingestion handler/dedup, incident store — чисто), `golangci-lint --new-from-merge-base main` (0 new в обоих модулях), `govulncheck` (0 достижимых), `go mod tidy` без диффа. Предсуществующие `go vet` httpresponse-замечания в `incident/.../handler_test.go` — backlog T5 (CH17), не трогались.
 
-### CH16 · `tenantcache-singleflight` 🟢
+### CH16 · `tenantcache-singleflight` 🟢 — ✅ done (2026-06-16)
 **Корень:** stampede + неограниченный рост кэша.
 **Закрывает:** C7 (`singleflight` вокруг fetch + вытеснение протухших ключей).
 **Зависит от:** CH01. Маленький, самостоятельный.
+
+> **Реализовано.** Чейндж `tenantcache-singleflight` (no-delta perf/correctness, архив с `--skip-specs`; ADR не вводился — локальная оптимизация внутреннего кэша notification).
+> Что важно для следующих сессий:
+> - **C7.1 stampede:** `tenantcache.Cache` обёрнут в `golang.org/x/sync/singleflight.Group` (`services/notification/internal/tenantcache/cache.go`) — одновременные промахи по одному `tenantSlug` схлопываются в **один** `GetTenantNotificationConfig` к scheduling, результат раздаётся всем ожидающим. Лок по-прежнему не держится через I/O (запись в `data` — под `mu` уже после fetch).
+> - **C7.2 рост памяти:** фоновый sweeper (`runSweeper`/`evictExpired`, тикер = ttl) вычищает протухшие ключи; запускается из `New(ctx, fetcher, ttl)` и **останавливается по `ctx`**. **Сигнатура `New` сменилась** на `New(ctx, …)` — пробрасывается рабочий `ctx` сервиса из `services/notification/cmd/server/main.go` (graceful-stop чистки). Это внутренний пакет notification, не `pkg/*` — другие сервисы не затронуты.
+> - **Семантика `Get` сохранена:** кеш-хит в пределах TTL без нового fetch; ошибка fetch не кешируется. Новый `cache_test.go` (white-box): дедупликация 20 параллельных промахов → 1 fetch, вытеснение, регрессы — прогнан под **`-race`**.
+> - **API, события RabbitMQ, схема БД — без изменений; не BREAKING.** Дельты спека нет (спеки `notification-dispatch` кэш не описывают).
+> - **CH17 (T4):** `tenantcache` теперь покрыт юнитами (закрыт пробел из `docs/audit/08-testing.md`) — но `goleak` (T3) на sweeper-горутину можно добавить в CH17.
+> - Проверки: `go build/vet/test` (notification), **`-race`** (tenantcache, чисто), `golangci-lint --new-from-merge-base main` (0 new), `govulncheck` (0 достижимых), `go mod tidy` без диффа (`x/sync` уже direct).
 
 ---
 
