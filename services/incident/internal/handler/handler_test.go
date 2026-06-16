@@ -18,6 +18,17 @@ import (
 	"github.com/sre-oncall/pkg/events"
 )
 
+// mustGet проверяет ошибку транспорта до использования ответа (T5: иначе
+// go vet httpresponse предупреждает об использовании resp до проверки err).
+func mustGet(t *testing.T, url string) *http.Response {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("GET %s: %v", url, err)
+	}
+	return resp
+}
+
 // ── In-memory store stub ─────────────────────────────────────────────────────
 
 type memHandler struct {
@@ -317,7 +328,7 @@ func TestHandler_ListIncidentAlerts(t *testing.T) {
 	}
 
 	// Unknown incident → 404
-	resp2, _ := http.Get(srv.URL + "/api/incidents/v1/tenant-a/incidents/nonexistent/alerts")
+	resp2 := mustGet(t, srv.URL+"/api/incidents/v1/tenant-a/incidents/nonexistent/alerts")
 	defer resp2.Body.Close()
 	if resp2.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404 for unknown incident, got %d", resp2.StatusCode)
