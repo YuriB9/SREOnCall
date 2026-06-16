@@ -442,16 +442,21 @@ func mergeLabels(ctx context.Context, q dbConn, incidentID string, labels map[st
 	if len(labels) == 0 {
 		return nil
 	}
+	keys := make([]string, 0, len(labels))
+	values := make([]string, 0, len(labels))
 	for k, v := range labels {
-		_, err := q.Exec(ctx,
-			`INSERT INTO incident.incident_labels (incident_id, key, value)
-			 VALUES ($1, $2, $3)
-			 ON CONFLICT (incident_id, key) DO UPDATE SET value = EXCLUDED.value`,
-			incidentID, k, v,
-		)
-		if err != nil {
-			return fmt.Errorf("merge label %q: %w", k, err)
-		}
+		keys = append(keys, k)
+		values = append(values, v)
+	}
+	// Single multi-row upsert via unnest — one round-trip instead of N.
+	_, err := q.Exec(ctx,
+		`INSERT INTO incident.incident_labels (incident_id, key, value)
+		 SELECT $1, k, v FROM unnest($2::text[], $3::text[]) AS t(k, v)
+		 ON CONFLICT (incident_id, key) DO UPDATE SET value = EXCLUDED.value`,
+		incidentID, keys, values,
+	)
+	if err != nil {
+		return fmt.Errorf("merge %d labels: %w", len(keys), err)
 	}
 	return nil
 }

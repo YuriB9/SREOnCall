@@ -29,6 +29,10 @@ func init() {
 type Cache interface {
 	SetNX(ctx context.Context, key, val string, ttl time.Duration) (bool, error)
 	Del(ctx context.Context, key string) error
+	// Apply runs SETNX for each key in setKeys (value val, ttl) and DEL for each
+	// key in delKeys, all in a single pipeline round-trip. The returned slice is
+	// parallel to setKeys: true means the key was newly set (not a duplicate).
+	Apply(ctx context.Context, setKeys []string, val string, ttl time.Duration, delKeys []string) ([]bool, error)
 }
 
 // Deduplicator suppresses duplicate firing alerts using Redis SETNX.
@@ -62,6 +66,52 @@ func (d *Deduplicator) IsDuplicate(ctx context.Context, alert domain.Alert) (boo
 // Called for resolved alerts and on publish failure after IsDuplicate.
 func (d *Deduplicator) Clear(ctx context.Context, alert domain.Alert) error {
 	return d.cache.Del(ctx, redisKey(alert))
+}
+
+// Classify deduplicates a batch of alerts in a single Redis round-trip.
+// For firing alerts it performs SETNX; for resolved alerts it clears the key.
+// The returned slice is parallel to alerts: true means "duplicate, suppress".
+// Resolved alerts are never suppressed (always forwarded downstream).
+//
+// Within one batch, two firing alerts with the same fingerprint are deduplicated
+// against each other: the pipeline executes SETNX in order, so the first sets the
+// key (not a duplicate) and the second observes it (duplicate) — matching the
+// per-alert IsDuplicate semantics.
+func (d *Deduplicator) Classify(ctx context.Context, alerts []domain.Alert) ([]bool, error) {
+	dup := make([]bool, len(alerts))
+	if len(alerts) == 0 {
+		return dup, nil
+	}
+
+	// setIdx[i] is the position in alerts of the i-th SETNX (firing) alert.
+	setKeys := make([]string, 0, len(alerts))
+	setIdx := make([]int, 0, len(alerts))
+	delKeys := make([]string, 0, len(alerts))
+
+	for i, alert := range alerts {
+		if alert.Status == domain.AlertStatusResolved {
+			delKeys = append(delKeys, redisKey(alert))
+			continue
+		}
+		setKeys = append(setKeys, redisKey(alert))
+		setIdx = append(setIdx, i)
+	}
+
+	set, err := d.cache.Apply(ctx, setKeys, "1", d.ttl, delKeys)
+	if err != nil {
+		return nil, fmt.Errorf("dedup: classify batch of %d: %w", len(alerts), err)
+	}
+
+	for j, ok := range set {
+		i := setIdx[j]
+		if ok {
+			dedupMisses.WithLabelValues(alerts[i].TenantID).Inc()
+		} else {
+			dup[i] = true
+			dedupHits.WithLabelValues(alerts[i].TenantID).Inc()
+		}
+	}
+	return dup, nil
 }
 
 func redisKey(alert domain.Alert) string {

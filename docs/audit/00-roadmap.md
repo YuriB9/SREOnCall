@@ -37,13 +37,13 @@
 | CH12 | log-correlation | 5 | CH10 | ✅ |
 | CH13 | distributed-tracing | 5 | CH05, CH10 | ☐ |
 | CH14 | bus-publish-perf | 6 | CH07 | ✅ |
-| CH15 | ingestion-throughput | 6 | CH09, CH11 | ☐ |
+| CH15 | ingestion-throughput | 6 | CH09, CH11 | ✅ |
 | CH16 | tenantcache-singleflight | 6 | CH01 | ☐ |
 | CH17 | test-hardening | 7 | CH01 | ☐ |
 | CH18 | docs-and-style | 7 | CH01 | ☐ |
 | CH19 | containerize-and-scan | 7 | CH01 | ☐ |
 
-Прогресс: **13 / 19** done.
+Прогресс: **14 / 19** done.
 
 ---
 
@@ -349,10 +349,20 @@
 >   `go mod tidy` без диффа. Предсуществующие `go vet` httpresponse-замечания в `*/handler_test.go` —
 >   backlog T5 (CH17), не трогались.
 
-### CH15 · `ingestion-throughput` 🟡
+### CH15 · `ingestion-throughput` 🟡 — ✅ done (2026-06-16)
 **Корень:** последовательный I/O без батчинга.
 **Закрывает:** P2 (батч-INSERT `raw_alerts` + пайплайн Redis + воркер-пул), P3 (multi-row INSERT в `MergeLabels`), P5 (один `json.Marshal` для `Alert`).
 **Зависит от:** CH09 (store вынесен), CH11 (метрики для замера), CH01 (бенчи).
+
+> **Реализовано.** Чейндж `ingestion-throughput` (no-delta perf, архив с `--skip-specs`; ADR не вводился — локальные оптимизации round-trip'ов в рамках существующего транспорта/хранилища).
+> Что важно для следующих сессий:
+> - **P2(а) ingestion — групповой `processAlerts`:** тело вебхука обрабатывается фазами Marshal(один раз) → `Deduplicator.Classify` (пайплайн Redis в один round-trip) → `Store.SaveRawAlerts` (`pgx.Batch`, один round-trip) → публикация неподавленных на переиспользуемом канале (CH14). Порядок алертов, семантика дедупа (в т.ч. дубль fingerprint **внутри** одного тела) и откат дедуп-ключа при ошибке публикации сохранены; ответ `503` при ошибке. **P2(б) воркер-пул консьюмеров — уже в CH07/C8**, здесь не трогался.
+> - **Интерфейсы ingestion сменили сигнатуру** (не wire/API): `handler.Store.SaveRawAlert`→`SaveRawAlerts([]store.RawAlert)`; `handler.Publisher`→`PublishAlertPayload(ctx, tenantID, json.RawMessage)`; `dedup.Cache`+`Apply(...)`, `Deduplicator.Classify(...)` (старые `SetNX`/`Del`/`IsDuplicate`/`Clear` оставлены для отката/регрессий). **Для CH16** (`tenantcache-singleflight`): дедуп-пайплайн — отдельный путь, не пересекается.
+> - **P3 incident — `mergeLabels` один multi-row upsert** через `unnest($2::text[], $3::text[]) ON CONFLICT DO UPDATE`; общий приватный helper покрывает и `MergeLabels`, и `CreateIncidentTx` (работает внутри транзакции CH08).
+> - **P5 — единый `json.Marshal(Alert)`:** готовый `json.RawMessage` переиспользуется для `raw_alerts.payload` и для конверта (`Wrap(json.RawMessage)` не реэнкодит структуру) — `pkg/amqp` не трогался.
+> - **benchstat (n=10, docker-compose):** raw_alerts batch −92.8% времени; mergeLabels unnest −89.3%; dedup pipeline −48.2%; marshal ~ по времени (I/O-bound, как и предсказывал аудит), но −28% B/op / −39% allocs. Файл `benchstat.txt` в архиве чейнджа. Бенчи I/O — `b.Skip` без живой инфры (паттерн CH14).
+> - **Wire-формат `alert.received`, API, схема БД не менялись — не BREAKING.** Дельты спека нет.
+> - Проверки: `go build/vet/test` (ingestion, incident), **`-race`** (ingestion handler/dedup, incident store — чисто), `golangci-lint --new-from-merge-base main` (0 new в обоих модулях), `govulncheck` (0 достижимых), `go mod tidy` без диффа. Предсуществующие `go vet` httpresponse-замечания в `incident/.../handler_test.go` — backlog T5 (CH17), не трогались.
 
 ### CH16 · `tenantcache-singleflight` 🟢
 **Корень:** stampede + неограниченный рост кэша.

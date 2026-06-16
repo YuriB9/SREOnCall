@@ -9,23 +9,28 @@ import (
 	"time"
 
 	"github.com/sre-oncall/ingestion/internal/middleware"
+	"github.com/sre-oncall/ingestion/internal/store"
 	"github.com/sre-oncall/pkg/domain"
 )
 
 // Deduplicator is implemented by dedup.Deduplicator.
 type Deduplicator interface {
-	IsDuplicate(ctx context.Context, alert domain.Alert) (bool, error)
+	// Classify deduplicates a batch in one round-trip; the result is parallel to
+	// alerts, true meaning "duplicate, suppress".
+	Classify(ctx context.Context, alerts []domain.Alert) ([]bool, error)
+	// Clear releases a dedup key so a retry can pass through (used to roll back on
+	// publish failure).
 	Clear(ctx context.Context, alert domain.Alert) error
 }
 
 // Publisher is implemented by publisher.Publisher.
 type Publisher interface {
-	PublishAlert(ctx context.Context, alert domain.Alert) error
+	PublishAlertPayload(ctx context.Context, tenantID string, payload json.RawMessage) error
 }
 
 // Store persists raw alerts for audit.
 type Store interface {
-	SaveRawAlert(ctx context.Context, alert domain.Alert, deduplicated bool) error
+	SaveRawAlerts(ctx context.Context, items []store.RawAlert) error
 }
 
 // Handler processes incoming webhook requests.
@@ -40,47 +45,56 @@ func New(d Deduplicator, p Publisher, s Store, l *slog.Logger) *Handler {
 	return &Handler{dedup: d, pub: p, store: s, logger: l}
 }
 
-// processAlerts is shared by all webhook handlers after normalization.
+// processAlerts is shared by all webhook handlers after normalization. It handles
+// the whole webhook body as a batch: one Redis pipeline for deduplication, one
+// pgx.Batch INSERT for the audit log, and grouped publishing on the reusable
+// channel — collapsing 3×N sequential round-trips into a handful. Alert order and
+// dedup semantics match the previous per-alert path.
 func (h *Handler) processAlerts(ctx context.Context, alerts []domain.Alert) error {
-	for _, alert := range alerts {
-		if err := h.processOne(ctx, alert); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (h *Handler) processOne(ctx context.Context, alert domain.Alert) error {
-	alertsReceived.WithLabelValues(string(alert.Source)).Inc()
-
-	var isDup bool
-
-	if alert.Status == domain.AlertStatusResolved {
-		if err := h.dedup.Clear(ctx, alert); err != nil {
-			h.logger.ErrorContext(ctx, "dedup clear failed", "fingerprint", alert.Fingerprint, "err", err)
-		}
-	} else {
-		var err error
-		isDup, err = h.dedup.IsDuplicate(ctx, alert)
-		if err != nil {
-			h.logger.ErrorContext(ctx, "dedup check failed", "fingerprint", alert.Fingerprint, "err", err)
-			// Proceed — better to forward than lose the alert.
-		}
-	}
-
-	if err := h.store.SaveRawAlert(ctx, alert, isDup); err != nil {
-		h.logger.ErrorContext(ctx, "save raw alert failed", "fingerprint", alert.Fingerprint, "err", err)
-	}
-
-	if isDup {
+	if len(alerts) == 0 {
 		return nil
 	}
 
-	if err := h.pub.PublishAlert(ctx, alert); err != nil {
-		// Roll back dedup key so the sender can retry.
-		_ = h.dedup.Clear(ctx, alert)
-		h.logger.ErrorContext(ctx, "publish failed", "fingerprint", alert.Fingerprint, "err", err)
-		return err
+	// Marshal each alert once (reused for the audit column and the envelope).
+	payloads := make([]json.RawMessage, len(alerts))
+	for i, alert := range alerts {
+		alertsReceived.WithLabelValues(string(alert.Source)).Inc()
+		raw, err := json.Marshal(alert)
+		if err != nil {
+			h.logger.ErrorContext(ctx, "marshal alert failed", "fingerprint", alert.Fingerprint, "err", err)
+			return err
+		}
+		payloads[i] = raw
+	}
+
+	// Deduplicate the batch in a single Redis round-trip.
+	dup, err := h.dedup.Classify(ctx, alerts)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "dedup classify failed", "count", len(alerts), "err", err)
+		// Proceed without suppression — better to forward than lose alerts.
+		dup = make([]bool, len(alerts))
+	}
+
+	// Persist all raw alerts (audit log) in one batch INSERT.
+	items := make([]store.RawAlert, len(alerts))
+	for i, alert := range alerts {
+		items[i] = store.RawAlert{Alert: alert, Payload: payloads[i], Deduplicated: dup[i]}
+	}
+	if err := h.store.SaveRawAlerts(ctx, items); err != nil {
+		h.logger.ErrorContext(ctx, "save raw alerts failed", "count", len(items), "err", err)
+	}
+
+	// Publish non-suppressed alerts, preserving order.
+	for i, alert := range alerts {
+		if dup[i] {
+			continue
+		}
+		if err := h.pub.PublishAlertPayload(ctx, alert.TenantID, payloads[i]); err != nil {
+			// Roll back the dedup key so the sender can retry this alert.
+			_ = h.dedup.Clear(ctx, alert)
+			h.logger.ErrorContext(ctx, "publish failed", "fingerprint", alert.Fingerprint, "err", err)
+			return err
+		}
 	}
 	return nil
 }

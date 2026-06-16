@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/sre-oncall/ingestion/internal/dedup"
 	"github.com/sre-oncall/ingestion/internal/handler"
 	"github.com/sre-oncall/ingestion/internal/middleware"
+	"github.com/sre-oncall/ingestion/internal/store"
 	"github.com/sre-oncall/pkg/domain"
 )
 
@@ -160,18 +162,107 @@ func TestWebhookAlertmanager_Dedup_Integration(t *testing.T) {
 	}
 }
 
+func TestWebhookAlertmanager_BatchDedup_Integration(t *testing.T) {
+	t.Parallel()
+	const token = "test-batch-dedup-token"
+	var published []domain.Alert
+	pub := &capturePublisher{alerts: &published}
+	dd := dedup.New(&memCache{data: make(map[string]string)}, time.Hour)
+	h := handler.New(dd, pub, &noopStore{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	srv := httptest.NewServer(
+		middleware.Tenant(&staticTokenStore{token: token, tenantID: "t"})(
+			http.HandlerFunc(h.HandleAlertmanager),
+		),
+	)
+	defer srv.Close()
+
+	// Two alerts with identical labels (same fingerprint) in one body.
+	body := []byte(`{
+		"version": "4",
+		"status": "firing",
+		"alerts": [
+			{"status": "firing", "labels": {"alertname": "Same"}, "annotations": {},
+			 "startsAt": "2024-01-01T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"},
+			{"status": "firing", "labels": {"alertname": "Same"}, "annotations": {},
+			 "startsAt": "2024-01-01T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"}
+		]
+	}`)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL, bytes.NewReader(body))
+	req.Header.Set("X-Webhook-Token", token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if len(published) != 1 {
+		t.Errorf("expected 1 published alert despite a duplicate in the same body, got %d", len(published))
+	}
+}
+
+func TestWebhookAlertmanager_PreservesOrder_Integration(t *testing.T) {
+	t.Parallel()
+	const token = "test-order-token"
+	var published []domain.Alert
+	pub := &capturePublisher{alerts: &published}
+	dd := dedup.New(&memCache{data: make(map[string]string)}, time.Hour)
+	h := handler.New(dd, pub, &noopStore{}, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	srv := httptest.NewServer(
+		middleware.Tenant(&staticTokenStore{token: token, tenantID: "t"})(
+			http.HandlerFunc(h.HandleAlertmanager),
+		),
+	)
+	defer srv.Close()
+
+	body := []byte(`{
+		"version": "4",
+		"status": "firing",
+		"alerts": [
+			{"status": "firing", "labels": {"alertname": "A"}, "annotations": {}, "startsAt": "2024-01-01T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"},
+			{"status": "firing", "labels": {"alertname": "B"}, "annotations": {}, "startsAt": "2024-01-01T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"},
+			{"status": "firing", "labels": {"alertname": "C"}, "annotations": {}, "startsAt": "2024-01-01T00:00:00Z", "endsAt": "0001-01-01T00:00:00Z"}
+		]
+	}`)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, srv.URL, bytes.NewReader(body))
+	req.Header.Set("X-Webhook-Token", token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	want := []string{"A", "B", "C"}
+	if len(published) != len(want) {
+		t.Fatalf("expected %d published alerts, got %d", len(want), len(published))
+	}
+	for i, name := range want {
+		if published[i].Labels["alertname"] != name {
+			t.Errorf("position %d: got %q, want %q", i, published[i].Labels["alertname"], name)
+		}
+	}
+}
+
 // ── Test stubs ────────────────────────────────────────────────────────────────
 
 type capturePublisher struct{ alerts *[]domain.Alert }
 
-func (p *capturePublisher) PublishAlert(_ context.Context, a domain.Alert) error {
+func (p *capturePublisher) PublishAlertPayload(_ context.Context, tenantID string, payload json.RawMessage) error {
+	var a domain.Alert
+	if err := json.Unmarshal(payload, &a); err != nil {
+		return err
+	}
+	a.TenantID = tenantID
 	*p.alerts = append(*p.alerts, a)
 	return nil
 }
 
 type noopStore struct{}
 
-func (*noopStore) SaveRawAlert(_ context.Context, _ domain.Alert, _ bool) error { return nil }
+func (*noopStore) SaveRawAlerts(_ context.Context, _ []store.RawAlert) error { return nil }
 
 type staticTokenStore struct {
 	token    string
@@ -199,4 +290,16 @@ func (m *memCache) SetNX(_ context.Context, key, val string, _ time.Duration) (b
 func (m *memCache) Del(_ context.Context, key string) error {
 	delete(m.data, key)
 	return nil
+}
+
+func (m *memCache) Apply(ctx context.Context, setKeys []string, val string, ttl time.Duration, delKeys []string) ([]bool, error) {
+	out := make([]bool, len(setKeys))
+	for i, k := range setKeys {
+		set, _ := m.SetNX(ctx, k, val, ttl)
+		out[i] = set
+	}
+	for _, k := range delKeys {
+		_ = m.Del(ctx, k)
+	}
+	return out, nil
 }
